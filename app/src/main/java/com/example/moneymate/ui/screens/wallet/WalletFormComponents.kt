@@ -111,11 +111,14 @@ fun WalletTypeDropdown(
 ) {
     var expanded by remember { mutableStateOf(false) }
 
+    // FIXED: Match backend WalletType enum exactly
     val walletTypes = listOf(
-        "debit_card" to "Debit Card",
-        "credit_card" to "Credit Card",
         "cash" to "Cash",
-        "bank_account" to "Bank Account"
+        "card" to "Card",
+        "e_wallet" to "E-Wallet",
+        "savings" to "Savings",
+        "investment" to "Investment",
+        "other" to "Other"
     )
 
     ExposedDropdownMenuBox(
@@ -124,7 +127,7 @@ fun WalletTypeDropdown(
         modifier = modifier
     ) {
         OutlinedTextField(
-            value = walletTypes.find { it.first == selectedType }?.second ?: "Debit Card",
+            value = walletTypes.find { it.first == selectedType }?.second ?: "Cash",
             onValueChange = { },
             label = { Text("Type") },
             trailingIcon = {

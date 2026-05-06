@@ -9,9 +9,9 @@ import retrofit2.http.PUT
 
 interface SavingsGoalApiService {
     
-    @GET("/api/savings_goal/current")
+    @GET("api/savings_goals/current")
     suspend fun getCurrentSavingsGoal(): Response<SavingsGoalResponse>
     
-    @PUT("/api/savings_goal/current")
+    @PUT("api/savings_goals/current")
     suspend fun updateCurrentSavingsGoal(@Body request: SavingsGoalUpdateRequest): Response<SavingsGoalResponse>
 }

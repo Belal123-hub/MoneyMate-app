@@ -221,6 +221,16 @@ fun GoalScreen(
                             }
                         }
 
+                        // 2.5 Savings Forecast Chart (NEW)
+                        item {
+                            uiState.savingsForecast?.let { forecast ->
+                                com.example.moneymate.ui.screens.goal.component.SavingsForecastChart(
+                                    savingsForecast = forecast,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                )
+                            }
+                        }
+
                         // 3. SWIPEABLE CONTAINER - Budget and Category Limits
                         item {
                             SwipeableBudgetContainer(

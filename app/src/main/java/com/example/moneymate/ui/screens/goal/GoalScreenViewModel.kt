@@ -22,6 +22,7 @@ import com.example.domain.transaction.model.MonthlyData
 import com.example.domain.transaction.model.PeriodFilter
 import com.example.domain.transaction.model.SavingsMonthlyData
 import com.example.domain.transaction.model.SavingsTrendsData
+import com.example.domain.transaction.usecase.GetSavingsForecastUseCase
 import com.example.domain.transaction.usecase.GetSavingsTrendsUseCase
 import com.example.domain.wallet.model.TotalBalance
 import com.example.domain.wallet.usecase.GetTotalBalanceUseCase
@@ -44,6 +45,7 @@ class GoalScreenViewModel(
     private val getCurrentSavingsGoalUseCase: GetCurrentSavingsGoalUseCase,
     private val updateSavingsGoalUseCase: UpdateSavingsGoalUseCase,
     private val getSavingsTrendsUseCase: GetSavingsTrendsUseCase,
+    private val getSavingsForecastUseCase: GetSavingsForecastUseCase,
     private val getGoalsUseCase: GetGoalsUseCase,
     private val getTotalBalanceUseCase: GetTotalBalanceUseCase
 ) : ViewModel() {
@@ -61,6 +63,7 @@ class GoalScreenViewModel(
         loadCategoryLimits()
         loadSavingsGoal()
         loadSavingsTrends()
+        loadSavingsForecast()
         loadGoals()
         loadTotalBalance()
     }
@@ -197,9 +200,12 @@ class GoalScreenViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isSavingsTrendsLoading = true) }
             try {
+                println("📊 DEBUG: Loading savings trends for ${uiState.value.selectedPeriod} months...")
                 val result = getSavingsTrendsUseCase(months = uiState.value.selectedPeriod)
+                
                 if (result.isSuccess) {
                     val trendsData = result.getOrThrow()
+                    println("✅ DEBUG: Savings trends loaded successfully - ${trendsData.monthlyTrends.size} months")
 
                     // Generate months list for dropdown
                     val availableMonths = generateMonthLabels(trendsData.monthlyTrends)
@@ -213,18 +219,23 @@ class GoalScreenViewModel(
                             monthlyChartData = monthlyChartData,
                             availableMonths = availableMonths,
                             selectedChartMonth = availableMonths.firstOrNull() ?: "Jan 2024",
-                            isSavingsTrendsLoading = false
+                            isSavingsTrendsLoading = false,
+                            savingsTrendsError = null
                         )
                     }
                 } else {
+                    val error = result.exceptionOrNull()?.message ?: "Failed to load savings trends"
+                    println("❌ DEBUG: Savings trends failed - $error")
                     _uiState.update {
                         it.copy(
                             isSavingsTrendsLoading = false,
-                            savingsTrendsError = "Failed to load savings trends"
+                            savingsTrendsError = error
                         )
                     }
                 }
             } catch (e: Exception) {
+                println("❌ DEBUG: Savings trends exception - ${e.message}")
+                e.printStackTrace()
                 _uiState.update {
                     it.copy(
                         isSavingsTrendsLoading = false,
@@ -501,6 +512,20 @@ class GoalScreenViewModel(
         _uiState.update { it.copy(selectedPeriod = period) }
         loadSavingsTrends()
     }
+
+    // NEW: Load savings forecast
+    private fun loadSavingsForecast() {
+        viewModelScope.launch {
+            try {
+                val result = getSavingsForecastUseCase(3)
+                if (result.isSuccess) {
+                    _uiState.update { it.copy(savingsForecast = result.getOrNull()) }
+                }
+            } catch (e: Exception) {
+                // Silently fail - forecast is optional
+            }
+        }
+    }
 }
 
 // --- UI STATE MODEL ---
@@ -531,6 +556,8 @@ data class GoalScreenState(
     // Chart Data
     val monthlyChartData: MonthlyChartData? = null,
 
+    // NEW Forecast Data
+    val savingsForecast: com.example.domain.transaction.model.SavingsForecastData? = null,
 
     // Chart Controls
     val selectedChartMonth: String = "Jan 2024",

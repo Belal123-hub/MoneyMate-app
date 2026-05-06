@@ -31,9 +31,12 @@ import com.example.domain.transaction.usecase.GetCategorySummaryUseCase
 import com.example.domain.transaction.usecase.GetMonthlyChartDataUseCase
 import com.example.domain.transaction.usecase.GetMonthlyComparisonUseCase
 import com.example.domain.transaction.usecase.GetRecentTransactionsUseCase
+import com.example.domain.transaction.usecase.GetSavingsForecastUseCase
+import com.example.domain.transaction.usecase.GetSavingsSuggestionsUseCase
 import com.example.domain.transaction.usecase.GetTopCategoriesCurrentMonthUseCase
 import com.example.domain.transaction.usecase.GetTransactionsUseCase
 import com.example.domain.transaction.usecase.GetTransferPreviewUseCase
+import com.example.domain.transaction.usecase.GetSpendingForecastUseCase
 import com.example.domain.transaction.usecase.GetWalletTransactionsUseCase
 import com.example.domain.user.usecase.DeleteAvatarUseCase
 import com.example.domain.user.usecase.GetUserDetailedUseCase
@@ -104,5 +107,8 @@ val useCaseModule = module {
     factory{ GetGoalsUseCase(get()) }
     factory{ UpdateGoalUseCase(get()) }
     factory{ GetSavingsTrendsUseCase(get()) }
+    factory{ GetSavingsForecastUseCase(get()) }
+    factory{ GetSpendingForecastUseCase(get()) }
+    factory{ GetSavingsSuggestionsUseCase(get()) }
 
 }

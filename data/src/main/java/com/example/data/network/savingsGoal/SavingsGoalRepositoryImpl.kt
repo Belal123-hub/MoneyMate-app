@@ -32,7 +32,7 @@ class SavingsGoalRepositoryImpl(
         withContext(Dispatchers.IO) {
             try {
                 // Convert the Double from Domain back to String for the API Request
-                val request = SavingsGoalUpdateRequest(target_amount = targetAmount.toString())
+                val request = SavingsGoalUpdateRequest(target_amount = targetAmount.toDouble())
                 val response = apiService.updateCurrentSavingsGoal(request)
 
                 if (response.isSuccessful) {

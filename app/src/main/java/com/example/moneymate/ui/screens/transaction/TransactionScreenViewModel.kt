@@ -16,6 +16,9 @@ import com.example.domain.transaction.usecase.GetCategorySummaryUseCase
 import com.example.domain.transaction.usecase.GetMonthlyChartDataUseCase
 import com.example.domain.transaction.usecase.GetMonthlyComparisonUseCase
 import com.example.domain.transaction.usecase.GetRecentTransactionsUseCase
+import com.example.domain.transaction.usecase.GetSavingsForecastUseCase
+import com.example.domain.transaction.usecase.GetSavingsSuggestionsUseCase
+import com.example.domain.transaction.usecase.GetSpendingForecastUseCase
 import com.example.domain.transaction.usecase.GetTopCategoriesCurrentMonthUseCase
 import com.example.moneymate.utils.DataSyncManager
 import com.example.moneymate.utils.ScreenState
@@ -31,7 +34,10 @@ class TransactionScreenViewModel(
     private val getMonthlyComparisonUseCase: GetMonthlyComparisonUseCase,
     private val getRecentTransactionsUseCase: GetRecentTransactionsUseCase,
     private val getTopCategoriesCurrentMonthUseCase: GetTopCategoriesCurrentMonthUseCase,
-    private val getAverageSpendingUseCase: GetAverageSpendingUseCase
+    private val getAverageSpendingUseCase: GetAverageSpendingUseCase,
+    private val getSavingsForecastUseCase: GetSavingsForecastUseCase,
+    private val getSpendingForecastUseCase: GetSpendingForecastUseCase,
+    private val getSavingsSuggestionsUseCase: GetSavingsSuggestionsUseCase
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TransactionScreenState())
@@ -114,24 +120,66 @@ class TransactionScreenViewModel(
             _uiState.value = _uiState.value.copy(chartsState = ScreenState.Loading)
 
             try {
-                println("DEBUG: Loading all chart data...")
+                println("📊 DEBUG: Loading all chart data...")
 
                 // Load all chart data in parallel
-                val monthlyChartDeferred = async { getMonthlyChartDataUseCase.execute(months = 12) }
+                val monthlyChartDeferred = async { 
+                    println("  ⏳ Loading monthly chart...")
+                    getMonthlyChartDataUseCase.execute(months = 12) 
+                }
                 val defaultDateRange = DateRange(getDefaultStartDate(), getDefaultEndDate())
-                val lineChartDataDeferred = async { getMonthlyChartDataUseCase.executeForLineChart(defaultDateRange) }
-                val categorySummaryDeferred = async { getCategorySummaryUseCase.execute() }
-                val monthlyComparisonDeferred = async { getMonthlyComparisonUseCase.execute() }
-                val topCategoriesDeferred = async { getTopCategoriesCurrentMonthUseCase() }
-                val averageSpendingDeferred = async { getAverageSpendingUseCase(PeriodFilter.MONTH) }
+                val lineChartDataDeferred = async { 
+                    println("  ⏳ Loading line chart data...")
+                    getMonthlyChartDataUseCase.executeForLineChart(defaultDateRange) 
+                }
+                val categorySummaryDeferred = async { 
+                    println("  ⏳ Loading category summary...")
+                    println("  📊 DEBUG: getCategorySummaryUseCase instance: ${getCategorySummaryUseCase != null}")
+                    val result = getCategorySummaryUseCase.execute()
+                    println("  📊 DEBUG: Category summary result: ${result.expenses.size} expenses")
+                    result
+                }
+                val monthlyComparisonDeferred = async { 
+                    println("  ⏳ Loading monthly comparison...")
+                    getMonthlyComparisonUseCase.execute() 
+                }
+                val topCategoriesDeferred = async { 
+                    println("  ⏳ Loading top categories...")
+                    getTopCategoriesCurrentMonthUseCase() 
+                }
+                val averageSpendingDeferred = async { 
+                    println("  ⏳ Loading average spending...")
+                    getAverageSpendingUseCase(PeriodFilter.MONTH) 
+                }
+                // NEW FORECAST DATA
+                val savingsForecastDeferred = async { getSavingsForecastUseCase(3) }
+                val spendingForecastDeferred = async { getSpendingForecastUseCase() }
+                val savingsSuggestionsDeferred = async { getSavingsSuggestionsUseCase() }
 
                 // Await all results
                 val monthlyChart = monthlyChartDeferred.await()
+                println("  ✅ Monthly chart loaded: ${monthlyChart.months.size} months, ${monthlyChart.days.size} days")
+                
                 val lineChartData = lineChartDataDeferred.await()
+                println("  ✅ Line chart loaded: ${lineChartData.days.size} days")
+                
                 val categorySummary = categorySummaryDeferred.await()
+                println("  ✅ Category summary: ${categorySummary.expenses.size} expense categories")
+                
                 val monthlyComparison = monthlyComparisonDeferred.await()
+                println("  ✅ Monthly comparison: ${monthlyComparison.categories.size} categories")
+                
                 val topCategories = topCategoriesDeferred.await().getOrElse { emptyList() }
+                println("  ✅ Top categories: ${topCategories.size} categories")
+                
                 val averageSpending = averageSpendingDeferred.await().getOrElse { emptyList() }
+                println("  ✅ Average spending: ${averageSpending.size} categories")
+                
+                // NEW FORECAST DATA
+                val savingsForecast = savingsForecastDeferred.await().getOrNull()
+                val spendingForecast = spendingForecastDeferred.await().getOrNull()
+                val savingsSuggestions = savingsSuggestionsDeferred.await().getOrNull()
+                println("  ✅ Forecasts loaded - Savings: ${savingsForecast != null}, Spending: ${spendingForecast != null}, Suggestions: ${savingsSuggestions?.suggestions?.size ?: 0}")
 
                 val chartsData = TransactionChartsData(
                     monthlyChart = monthlyChart.copy(
@@ -144,7 +192,10 @@ class TransactionScreenViewModel(
                     topCategories = topCategories,
                     averageSpending = averageSpending,
                     currentChartType = ChartType.MONTHLY_TRENDS,
-                    currentPeriod = PeriodFilter.MONTH
+                    currentPeriod = PeriodFilter.MONTH,
+                    savingsForecast = savingsForecast,
+                    spendingForecast = spendingForecast,
+                    savingsSuggestions = savingsSuggestions
                 )
 
                 _uiState.value = _uiState.value.copy(

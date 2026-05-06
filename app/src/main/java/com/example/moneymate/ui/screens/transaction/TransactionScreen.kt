@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -149,6 +150,25 @@ fun TransactionScreen(
                                 viewModel = viewModel,
                                 modifier = Modifier.fillMaxWidth()
                             )
+
+                            // NEW FORECAST CHARTS
+                            chartsData.spendingForecast?.let { forecast ->
+                                androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(16.dp))
+                                com.example.moneymate.ui.screens.transaction.component.SpendingForecastChart(
+                                    spendingForecast = forecast,
+                                    modifier = Modifier.padding(horizontal = 16.dp)
+                                )
+                            }
+
+                            chartsData.savingsSuggestions?.let { suggestions ->
+                                if (suggestions.suggestions.isNotEmpty()) {
+                                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(16.dp))
+                                    com.example.moneymate.ui.screens.transaction.component.AISuggestionsCard(
+                                        suggestionsData = suggestions,
+                                        modifier = Modifier.padding(horizontal = 16.dp)
+                                    )
+                                }
+                            }
                         }
                     }
 

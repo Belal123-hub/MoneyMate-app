@@ -12,11 +12,16 @@ import retrofit2.Converter
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.io.File
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 @Suppress("MagicNumber", "LongParameterList")
 object Network {
-    private const val BASE_URL = "http://10.0.2.2:8000"
+    private const val BASE_URL = "https://10.0.2.2:7148"  // Changed to HTTPS
 
     private const val CONTENT_TYPE = "application/json"
 
@@ -30,13 +35,14 @@ object Network {
     val appJson: Json = Json {
         ignoreUnknownKeys = true
         coerceInputValues = true
+        explicitNulls = false
+        isLenient = true
     }
 
     fun getJsonFactory(json: Json): Converter.Factory =
         json.asConverterFactory(contentType = CONTENT_TYPE.toMediaType())
 
     fun getLoggingInterceptor(): HttpLoggingInterceptor = HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BODY)
-
 
     fun getHeadersInterceptor(
         accessTokenRepository: AccessTokenRepository,
@@ -52,6 +58,31 @@ object Network {
         serializer = serializer,
         accessTokenRepository = accessTokenRepository,
     )
+
+    /**
+     * For DEVELOPMENT ONLY - Disables SSL certificate verification
+     * DO NOT use this in production!
+     */
+    private fun configureUnsafeSsl(clientBuilder: OkHttpClient.Builder): OkHttpClient.Builder {
+        try {
+            // Create a trust manager that accepts all certificates
+            val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
+                override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+                override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+                override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+            })
+
+            val sslContext = SSLContext.getInstance("TLS")
+            sslContext.init(null, trustAllCerts, SecureRandom())
+
+            clientBuilder.sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
+            clientBuilder.hostnameVerifier { _, _ -> true }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return clientBuilder
+    }
+
     fun getHttpClient(
         cache: Cache,
         headersInterceptor: HeadersInterceptor,
@@ -68,6 +99,9 @@ object Network {
         addInterceptor(loggingInterceptor)
 
         authenticator(authenticator)
+
+        // Configure unsafe SSL for development
+        configureUnsafeSsl(this)
     }.build()
 
     fun getRetrofit(

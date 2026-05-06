@@ -1,5 +1,6 @@
 package com.example.data.network.auth
 
+import com.example.data.network.auth.model.LoginRequest
 import com.example.data.network.auth.model.SignUpRequest
 import com.example.domain.auth.dataSource.AuthRemoteDataSource
 import com.example.domain.auth.dataSource.model.AccessToken
@@ -42,8 +43,11 @@ class AuthRemoteDataSourceImpl(
     }
 
     override suspend fun signIn(email: String, password: String): AccessToken {
-        // Directly pass email and password as query parameters
-        val response = authApi.signIn(email = email, password = password)
-        return AccessToken(response.accessToken, response.tokenType)
+        val request = LoginRequest(
+            email = email,
+            password = password
+        )
+        val response = authApi.signIn(request)
+        return AccessToken(response.accessToken, response.refreshToken)
     }
 }

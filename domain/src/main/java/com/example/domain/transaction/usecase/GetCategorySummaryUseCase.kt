@@ -14,16 +14,33 @@ class GetCategorySummaryUseCase(
         endDate: String = getDefaultEndDate()
     ): CategorySummaryData {
         return try {
-            transactionRepository.getCategorySummary(startDate, endDate).getOrThrow()
+            println("📊 DEBUG: GetCategorySummaryUseCase - Calling API with startDate=$startDate, endDate=$endDate")
+            val result = transactionRepository.getCategorySummary(startDate, endDate)
+            if (result.isSuccess) {
+                val data = result.getOrThrow()
+                println("✅ DEBUG: GetCategorySummaryUseCase - Success! ${data.expenses.size} expenses, ${data.incomes.size} incomes")
+                data
+            } else {
+                val error = result.exceptionOrNull()
+                println("❌ DEBUG: GetCategorySummaryUseCase - API returned failure: ${error?.message}")
+                error?.printStackTrace()
+                getEmptyCategorySummary()
+            }
         } catch (e: Exception) {
-            CategorySummaryData(
-                expenses = emptyList(),
-                incomes = emptyList(),
-                totalExpenses = 0.0,
-                totalIncomes = 0.0,
-                netFlow = 0.0
-            )
+            println("❌ DEBUG: GetCategorySummaryUseCase - Exception caught: ${e.message}")
+            e.printStackTrace()
+            getEmptyCategorySummary()
         }
+    }
+
+    private fun getEmptyCategorySummary(): CategorySummaryData {
+        return CategorySummaryData(
+            expenses = emptyList(),
+            incomes = emptyList(),
+            totalExpenses = 0.0,
+            totalIncomes = 0.0,
+            netFlow = 0.0
+        )
     }
 
     private fun getDefaultStartDate(): String {

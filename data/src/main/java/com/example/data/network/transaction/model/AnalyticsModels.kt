@@ -88,8 +88,17 @@ data class AverageSpendingResponse(
 @Serializable
 data class SavingsTrendsResponse(
     val monthly_trends: List<SavingsMonthlyTrendDto>,
-    val months_analyzed: Int,
-    val analysis_period: AnalysisPeriodDto
+    val months_analyzed: Int = 6,  // Make optional with default value
+    val analysis_period: AnalysisPeriodDto? = null,  // Make nullable
+    val summary: SavingsTrendsSummaryDto? = null  // Add optional summary
+)
+
+@Serializable
+data class SavingsTrendsSummaryDto(
+    val total_saved: Double = 0.0,
+    val total_target: Double = 0.0,
+    val average_achievement_rate: Double = 0.0,
+    val months_tracked: Int = 0
 )
 
 @Serializable
@@ -106,4 +115,45 @@ data class SavingsMonthlyTrendDto(
 data class AnalysisPeriodDto(
     val start_date: String,
     val end_date: String
+)
+
+// FORECAST RESPONSE MODELS
+@Serializable
+data class SavingsForecastResponse(
+    val current_savings: Double,
+    val average_monthly_saving: Double,
+    val months_ahead: Int,
+    val projections: List<SavingsProjectionDto>,
+    val forecast_date: String
+)
+
+@Serializable
+data class SavingsProjectionDto(
+    val month: String,
+    val projected_amount: Double,
+    val cumulative_total: Double
+)
+
+@Serializable
+data class SpendingForecastResponse(
+    val spent_so_far: Double,
+    val daily_average_spending: Double,
+    val forecast_end_of_month: Double,
+    val days_elapsed: Int,
+    val days_in_month: Int,
+    val confidence: String
+)
+
+@Serializable
+data class SavingsSuggestionsResponse(
+    val suggestions: List<SavingsSuggestionDto>,
+    val generated_at: String
+)
+
+@Serializable
+data class SavingsSuggestionDto(
+    val type: String,
+    val title: String,
+    val message: String,
+    val amount: Double?
 )
