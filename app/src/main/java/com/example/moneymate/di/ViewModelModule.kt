@@ -50,6 +50,8 @@ val viewModelModule  = module {
         get(), get(),
         get(), get(),
         get(), get(), get(),
-        get(), get(), get()) }
+        get(), get(), get(),
+        get(),
+        get()) }
     viewModel { GoalDetailViewModel(get(), get(),
         get(), get()) }}

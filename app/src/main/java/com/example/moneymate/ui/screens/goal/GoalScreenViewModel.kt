@@ -2,8 +2,11 @@ package com.example.moneymate.ui.screens.goal
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.database.dao.BudgetDao
 import com.example.data.database.dao.MonthlySavingsGoalDao
 import com.example.data.database.dao.TransactionDao
+import com.example.data.database.dao.WalletDao
+import com.example.data.database.entity.BudgetEntity
 import com.example.data.database.entity.MonthlySavingsGoalEntity
 import com.example.domain.budget.model.Budget
 import com.example.domain.budget.usecase.GetCurrentBudgetUseCase
@@ -56,7 +59,9 @@ class GoalScreenViewModel(
     private val getTotalBalanceUseCase: GetTotalBalanceUseCase,
     private val connectivityObserver: ConnectivityObserver,
     private val transactionDao: TransactionDao,
-    private val monthlySavingsGoalDao: MonthlySavingsGoalDao
+    private val walletDao: WalletDao,
+    private val monthlySavingsGoalDao: MonthlySavingsGoalDao,
+    private val budgetDao: BudgetDao
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(GoalScreenState())
@@ -74,6 +79,79 @@ class GoalScreenViewModel(
                 _uiState.update {
                     it.copy(syncStatus = if (isOnline) SyncStatus.IDLE else SyncStatus.OFFLINE)
                 }
+                if (isOnline) {
+                    syncPendingSavingsGoalUpdates()
+                    syncPendingBudgetUpdates()
+                }
+            }
+        }
+    }
+
+    private fun syncPendingSavingsGoalUpdates() {
+        viewModelScope.launch {
+            try {
+                val pending = monthlySavingsGoalDao.getUnsyncedGoals()
+                if (pending.isEmpty()) return@launch
+
+                println("📤 GOALS: Syncing ${pending.size} offline savings goal update(s)")
+                pending.forEach { local ->
+                    val target = local.targetAmount
+                    val result = updateSavingsGoalUseCase(target)
+                    if (result.isSuccess) {
+                        val updated = result.getOrThrow()
+                        upsertSavingsGoalLocally(updated, isSynced = true)
+                        monthlySavingsGoalDao.markGoalsSynced(listOf(local.id), System.currentTimeMillis())
+                        println("✅ GOALS: Synced savings goal target=$target (month=${local.month}, year=${local.year})")
+                    } else {
+                        println("⚠️ GOALS: Failed to sync savings goal target=$target: ${result.exceptionOrNull()?.message}")
+                    }
+                }
+                // Refresh from backend after attempting push
+                loadSavingsGoal()
+            } catch (e: Exception) {
+                println("❌ GOALS: Exception syncing offline savings goals: ${e.message}")
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private fun syncPendingBudgetUpdates() {
+        viewModelScope.launch {
+            try {
+                val pending = budgetDao.getUnsyncedBudgets()
+                if (pending.isEmpty()) return@launch
+
+                println("📤 GOALS: Syncing ${pending.size} offline budget update(s)")
+                pending.forEach { local ->
+                    val result = updateBudgetUseCase(local.monthlyLimit, local.dailyLimit)
+                    if (result.isSuccess) {
+                        val updated = result.getOrThrow()
+                        // Cache returned authoritative values as synced
+                        budgetDao.upsertBudget(
+                            BudgetEntity(
+                                id = updated.id,
+                                month = updated.month,
+                                year = updated.year,
+                                monthlyLimit = updated.monthlyLimit,
+                                dailyLimit = updated.dailyLimit,
+                                monthlySpent = updated.monthlySpent,
+                                dailySpent = updated.dailySpent,
+                                lastUpdatedDate = updated.lastUpdatedDate,
+                                createdAt = updated.createdAt,
+                                updatedAt = System.currentTimeMillis(),
+                                isSynced = true
+                            )
+                        )
+                        budgetDao.markBudgetsSynced(listOf(local.id), System.currentTimeMillis())
+                        println("✅ GOALS: Synced budget update (month=${local.month}, year=${local.year})")
+                    } else {
+                        println("⚠️ GOALS: Failed to sync budget update: ${result.exceptionOrNull()?.message}")
+                    }
+                }
+                loadBudgetData()
+            } catch (e: Exception) {
+                println("❌ GOALS: Exception syncing offline budgets: ${e.message}")
+                e.printStackTrace()
             }
         }
     }
@@ -130,24 +208,38 @@ class GoalScreenViewModel(
                     }
                 } else {
                     val exception = result.exceptionOrNull() ?: Exception("Failed to load balance")
-                    _uiState.update {
-                        it.copy(
-                            balanceState = ScreenState.Error(
-                                com.example.moneymate.utils.ErrorHandler.mapExceptionToAppError(exception),
-                                retryAction = { loadTotalBalance() }
-                            )
-                        )
-                    }
+                    loadOfflineBalanceFallback(exception)
                 }
             } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(
-                        balanceState = ScreenState.Error(
-                            com.example.moneymate.utils.ErrorHandler.mapExceptionToAppError(e),
-                            retryAction = { loadTotalBalance() }
-                        )
+                loadOfflineBalanceFallback(e)
+            }
+        }
+    }
+
+    private suspend fun loadOfflineBalanceFallback(cause: Throwable) {
+        try {
+            val wallets = walletDao.getWallets()
+            val totalBalanceValue = wallets.sumOf { (it.balance ?: it.initialBalance).toDoubleOrNull() ?: 0.0 }
+            val offlineBalance = TotalBalance(
+                totalBalance = totalBalanceValue,
+                currency = wallets.firstOrNull()?.currency ?: "USD",
+                breakdown = emptyMap()
+            )
+            _uiState.update {
+                it.copy(
+                    balanceState = ScreenState.Success(offlineBalance),
+                    totalBalance = offlineBalance
+                )
+            }
+            println("📱 GOALS: Loaded balance from Room fallback due to: ${cause.message}")
+        } catch (e: Exception) {
+            _uiState.update {
+                it.copy(
+                    balanceState = ScreenState.Error(
+                        com.example.moneymate.utils.ErrorHandler.mapExceptionToAppError(cause),
+                        retryAction = { loadTotalBalance() }
                     )
-                }
+                )
             }
         }
     }
@@ -326,6 +418,27 @@ class GoalScreenViewModel(
                 val result = getCurrentBudgetUseCase()
                 if (result.isSuccess) {
                     val budgetData = result.getOrThrow()
+                    try {
+                        budgetDao.upsertBudget(
+                            BudgetEntity(
+                                id = budgetData.id,
+                                month = budgetData.month,
+                                year = budgetData.year,
+                                monthlyLimit = budgetData.monthlyLimit,
+                                dailyLimit = budgetData.dailyLimit,
+                                monthlySpent = budgetData.monthlySpent,
+                                dailySpent = budgetData.dailySpent,
+                                lastUpdatedDate = budgetData.lastUpdatedDate,
+                                createdAt = budgetData.createdAt,
+                                updatedAt = System.currentTimeMillis(),
+                                isSynced = true
+                            )
+                        )
+                        println("📦 GOALS: Cached budget to Room for ${budgetData.month}/${budgetData.year}")
+                    } catch (e: Exception) {
+                        println("❌ GOALS: Failed to cache budget to Room: ${e.message}")
+                        e.printStackTrace()
+                    }
                     _uiState.update {
                         it.copy(
                             budgetState = ScreenState.Success(budgetData),
@@ -345,9 +458,34 @@ class GoalScreenViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isUpdating = true) }
             try {
-                val result = updateBudgetUseCase(monthlyAmount, dailyAmount)
+                // IMPORTANT: Backend appears to require both fields, not partial updates.
+                // So when user edits only one value, we send the other from current state/cache.
+                val current = _uiState.value.budget
+                val effectiveMonthly = monthlyAmount ?: current?.monthlyLimit
+                val effectiveDaily = dailyAmount ?: current?.dailyLimit
+
+                val result = updateBudgetUseCase(effectiveMonthly, effectiveDaily)
                 if (result.isSuccess) {
                     val updatedBudget = result.getOrThrow()
+                    try {
+                        budgetDao.upsertBudget(
+                            BudgetEntity(
+                                id = updatedBudget.id,
+                                month = updatedBudget.month,
+                                year = updatedBudget.year,
+                                monthlyLimit = updatedBudget.monthlyLimit,
+                                dailyLimit = updatedBudget.dailyLimit,
+                                monthlySpent = updatedBudget.monthlySpent,
+                                dailySpent = updatedBudget.dailySpent,
+                                lastUpdatedDate = updatedBudget.lastUpdatedDate,
+                                createdAt = updatedBudget.createdAt,
+                                updatedAt = System.currentTimeMillis(),
+                                isSynced = true
+                            )
+                        )
+                    } catch (_: Exception) {
+                        // caching failure shouldn't block UI
+                    }
                     _uiState.update {
                         it.copy(
                             budgetState = ScreenState.Success(updatedBudget),
@@ -357,11 +495,67 @@ class GoalScreenViewModel(
                     }
                     DataSyncManager.notifyBudgetUpdated()
                 } else {
-                    _uiState.update { it.copy(isUpdating = false) }
+                    saveBudgetOffline(effectiveMonthly, effectiveDaily)
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(isUpdating = false) }
+                val current = _uiState.value.budget
+                val effectiveMonthly = monthlyAmount ?: current?.monthlyLimit
+                val effectiveDaily = dailyAmount ?: current?.dailyLimit
+                saveBudgetOffline(effectiveMonthly, effectiveDaily)
             }
+        }
+    }
+
+    private suspend fun saveBudgetOffline(monthlyAmount: Double?, dailyAmount: Double?) {
+        try {
+            val now = LocalDate.now()
+            val existing = budgetDao.getBudgetByMonth(now.year, now.monthValue)
+            val current = existing ?: BudgetEntity(
+                id = 0,
+                month = now.monthValue,
+                year = now.year,
+                monthlyLimit = 0.0,
+                dailyLimit = 0.0,
+                monthlySpent = 0.0,
+                dailySpent = 0.0,
+                lastUpdatedDate = now.toString(),
+                createdAt = "",
+                updatedAt = System.currentTimeMillis(),
+                isSynced = false
+            )
+
+            val updatedLocal = current.copy(
+                monthlyLimit = monthlyAmount ?: current.monthlyLimit,
+                dailyLimit = dailyAmount ?: current.dailyLimit,
+                updatedAt = System.currentTimeMillis(),
+                isSynced = false
+            )
+            budgetDao.upsertBudget(updatedLocal)
+
+            val updatedDomain = Budget(
+                id = updatedLocal.id,
+                month = updatedLocal.month,
+                year = updatedLocal.year,
+                monthlyLimit = updatedLocal.monthlyLimit,
+                dailyLimit = updatedLocal.dailyLimit,
+                monthlySpent = updatedLocal.monthlySpent,
+                dailySpent = updatedLocal.dailySpent,
+                lastUpdatedDate = updatedLocal.lastUpdatedDate,
+                createdAt = updatedLocal.createdAt
+            )
+            _uiState.update {
+                it.copy(
+                    budgetState = ScreenState.Success(updatedDomain),
+                    budget = updatedDomain,
+                    isUpdating = false
+                )
+            }
+            println("📦 GOALS: Saved budget update offline (monthly=${updatedLocal.monthlyLimit}, daily=${updatedLocal.dailyLimit})")
+            DataSyncManager.notifyBudgetUpdated()
+        } catch (e: Exception) {
+            _uiState.update { it.copy(isUpdating = false) }
+            println("❌ GOALS: Failed to save budget offline: ${e.message}")
+            e.printStackTrace()
         }
     }
 
@@ -519,6 +713,36 @@ class GoalScreenViewModel(
     private suspend fun loadOfflineBudgetFallback() {
         try {
             val now = LocalDate.now()
+            val cachedBudget = try {
+                budgetDao.getBudgetByMonth(now.year, now.monthValue)
+            } catch (e: Exception) {
+                println("❌ GOALS: Failed to read cached budget from Room: ${e.message}")
+                e.printStackTrace()
+                null
+            }
+
+            if (cachedBudget != null) {
+                val budgetFromCache = Budget(
+                    id = cachedBudget.id,
+                    month = cachedBudget.month,
+                    year = cachedBudget.year,
+                    monthlyLimit = cachedBudget.monthlyLimit,
+                    dailyLimit = cachedBudget.dailyLimit,
+                    monthlySpent = cachedBudget.monthlySpent,
+                    dailySpent = cachedBudget.dailySpent,
+                    lastUpdatedDate = cachedBudget.lastUpdatedDate,
+                    createdAt = cachedBudget.createdAt
+                )
+                _uiState.update {
+                    it.copy(
+                        budgetState = ScreenState.Success(budgetFromCache),
+                        budget = budgetFromCache
+                    )
+                }
+                println("📦 GOALS: Loaded cached budget from Room for ${cachedBudget.month}/${cachedBudget.year}")
+                return
+            }
+
             val transactions = transactionDao.getTransactions()
 
             val monthlyExpense = transactions
@@ -551,6 +775,7 @@ class GoalScreenViewModel(
                     budget = fallbackBudget
                 )
             }
+            println("📦 GOALS: No cached budget found; using local spending fallback")
         } catch (e: Exception) {
             val now = LocalDate.now()
             val safeDefaultBudget = Budget(
