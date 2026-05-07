@@ -11,7 +11,7 @@ interface CategoryDao {
     @Query("SELECT * FROM categories ORDER BY name ASC")
     suspend fun getCategories(): List<CategoryEntity>
 
-    @Query("SELECT * FROM categories WHERE type = :type ORDER BY name ASC")
+    @Query("SELECT * FROM categories WHERE LOWER(type) = LOWER(:type) ORDER BY name ASC")
     suspend fun getCategoriesByType(type: String): List<CategoryEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

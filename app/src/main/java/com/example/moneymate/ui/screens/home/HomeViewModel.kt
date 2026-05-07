@@ -2,9 +2,12 @@ package com.example.moneymate.ui.screens.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.database.dao.BudgetDao
 import com.example.data.database.dao.MonthlySavingsGoalDao
 import com.example.data.database.dao.TransactionDao
 import com.example.data.database.dao.WalletDao
+import com.example.data.database.entity.BudgetEntity
+import com.example.data.database.entity.MonthlySavingsGoalEntity
 import com.example.domain.budget.model.Budget
 import com.example.domain.budget.usecase.GetCurrentBudgetUseCase
 import com.example.domain.savingsGoal.model.SavingsGoal
@@ -34,7 +37,8 @@ class HomeViewModel(
     private val connectivityObserver: ConnectivityObserver,
     private val walletDao: WalletDao,
     private val transactionDao: TransactionDao,
-    private val monthlySavingsGoalDao: MonthlySavingsGoalDao  // ← NEW
+    private val monthlySavingsGoalDao: MonthlySavingsGoalDao,  // ← NEW
+    private val budgetDao: BudgetDao
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeScreenState())
@@ -101,6 +105,27 @@ class HomeViewModel(
                 val result = getBudgetUseCase()
                 if (result.isSuccess) {
                     val budgetData = result.getOrThrow()
+                    try {
+                        budgetDao.upsertBudget(
+                            BudgetEntity(
+                                id = budgetData.id,
+                                month = budgetData.month,
+                                year = budgetData.year,
+                                monthlyLimit = budgetData.monthlyLimit,
+                                dailyLimit = budgetData.dailyLimit,
+                                monthlySpent = budgetData.monthlySpent,
+                                dailySpent = budgetData.dailySpent,
+                                lastUpdatedDate = budgetData.lastUpdatedDate,
+                                createdAt = budgetData.createdAt,
+                                updatedAt = System.currentTimeMillis(),
+                                isSynced = true
+                            )
+                        )
+                        println("📦 Home Budget: Cached budget to Room for ${budgetData.month}/${budgetData.year}")
+                    } catch (e: Exception) {
+                        println("❌ Home Budget: Failed to cache budget to Room: ${e.message}")
+                        e.printStackTrace()
+                    }
                     _uiState.update { it.copy(budgetState = ScreenState.Success(budgetData)) }
                 }
             } catch (e: Exception) {
@@ -215,6 +240,25 @@ class HomeViewModel(
                 val result = getCurrentSavingsGoalUseCase()
                 if (result.isSuccess) {
                     val savingsGoal = result.getOrNull()
+                    if (savingsGoal != null) {
+                        try {
+                            monthlySavingsGoalDao.upsertMonthlySavingsGoal(
+                                MonthlySavingsGoalEntity(
+                                    id = savingsGoal.id,
+                                    month = savingsGoal.month,
+                                    year = savingsGoal.year,
+                                    targetAmount = savingsGoal.targetAmount,
+                                    currentSaved = savingsGoal.currentSaved,
+                                    updatedAt = System.currentTimeMillis(),
+                                    isSynced = true
+                                )
+                            )
+                            println("📦 Home Savings: Cached savings goal to Room for ${savingsGoal.month}/${savingsGoal.year}")
+                        } catch (e: Exception) {
+                            println("❌ Home Savings: Failed to cache savings goal to Room: ${e.message}")
+                            e.printStackTrace()
+                        }
+                    }
                     _uiState.update { it.copy(savingsGoalState = ScreenState.Success(savingsGoal)) }
                 }
             } catch (e: Exception) {
@@ -366,38 +410,69 @@ class HomeViewModel(
 
                 // 7. Budget state (offline fallback computed from local transactions)
                 val now = LocalDate.now()
-                val monthlyExpense = allTransactions
-                    .filter { transaction ->
-                        parseLocalDate(transaction.transactionDate)?.let { date ->
-                            date.year == now.year && date.monthValue == now.monthValue
-                        } ?: false
-                    }
-                    .filter { it.type.equals("expense", ignoreCase = true) }
-                    .sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
+                val cachedBudget = try {
+                    budgetDao.getBudgetByMonth(now.year, now.monthValue)
+                } catch (e: Exception) {
+                    println("❌ Home Budget: Failed to read budget from Room: ${e.message}")
+                    e.printStackTrace()
+                    null
+                }
 
-                val todayExpense = allTransactions
-                    .filter { transaction ->
-                        parseLocalDate(transaction.transactionDate) == now
-                    }
-                    .filter { it.type.equals("expense", ignoreCase = true) }
-                    .sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
-
-                _uiState.update {
-                    it.copy(
-                        budgetState = ScreenState.Success(
-                            Budget(
-                                id = 0,
-                                month = now.monthValue,
-                                year = now.year,
-                                monthlyLimit = 0.0,
-                                dailyLimit = 0.0,
-                                monthlySpent = monthlyExpense,
-                                dailySpent = todayExpense,
-                                lastUpdatedDate = now.toString(),
-                                createdAt = ""
+                if (cachedBudget != null) {
+                    _uiState.update {
+                        it.copy(
+                            budgetState = ScreenState.Success(
+                                Budget(
+                                    id = cachedBudget.id,
+                                    month = cachedBudget.month,
+                                    year = cachedBudget.year,
+                                    monthlyLimit = cachedBudget.monthlyLimit,
+                                    dailyLimit = cachedBudget.dailyLimit,
+                                    monthlySpent = cachedBudget.monthlySpent,
+                                    dailySpent = cachedBudget.dailySpent,
+                                    lastUpdatedDate = cachedBudget.lastUpdatedDate,
+                                    createdAt = cachedBudget.createdAt
+                                )
                             )
                         )
-                    )
+                    }
+                    println("📦 Home Budget: Loaded cached budget from Room for ${cachedBudget.month}/${cachedBudget.year}")
+                } else {
+                    // Last-resort fallback: compute spending only (no budget limit).
+                    val monthlyExpense = allTransactions
+                        .filter { transaction ->
+                            parseLocalDate(transaction.transactionDate)?.let { date ->
+                                date.year == now.year && date.monthValue == now.monthValue
+                            } ?: false
+                        }
+                        .filter { it.type.equals("expense", ignoreCase = true) }
+                        .sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
+
+                    val todayExpense = allTransactions
+                        .filter { transaction ->
+                            parseLocalDate(transaction.transactionDate) == now
+                        }
+                        .filter { it.type.equals("expense", ignoreCase = true) }
+                        .sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
+
+                    _uiState.update {
+                        it.copy(
+                            budgetState = ScreenState.Success(
+                                Budget(
+                                    id = 0,
+                                    month = now.monthValue,
+                                    year = now.year,
+                                    monthlyLimit = 0.0,
+                                    dailyLimit = 0.0,
+                                    monthlySpent = monthlyExpense,
+                                    dailySpent = todayExpense,
+                                    lastUpdatedDate = now.toString(),
+                                    createdAt = ""
+                                )
+                            )
+                        )
+                    }
+                    println("📦 Home Budget: No cached budget found; using local spending fallback")
                 }
 
             } catch (e: Exception) {

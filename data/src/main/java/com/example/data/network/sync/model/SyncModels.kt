@@ -2,6 +2,7 @@ package com.example.data.network.sync.model
 
 import com.example.data.network.category.model.CategoryResponse
 import com.example.data.network.goal.model.GoalResponse
+import com.example.data.network.tag.model.TagDto
 import com.example.data.network.transaction.model.TransactionDto
 import com.example.data.network.wallet.model.WalletResponse
 import kotlinx.serialization.SerialName
@@ -25,7 +26,8 @@ data class SyncPullResponse(
     val transactions: List<TransactionDto> = emptyList(),
     val wallets: List<WalletResponse> = emptyList(),
     val categories: List<CategoryResponse> = emptyList(),
-    val goals: List<GoalResponse> = emptyList()
+    val goals: List<GoalResponse> = emptyList(),
+    val tags: List<TagDto> = emptyList()
 )
 
 @Serializable
@@ -36,7 +38,8 @@ data class SyncPushResponse(
     val transactions: List<TransactionDto>,
     val wallets: List<WalletResponse>,
     val goals: List<GoalResponse>,
-    val categories: List<CategoryResponse>
+    val categories: List<CategoryResponse>,
+    val tags: List<TagDto> = emptyList()
 )
 @Serializable
 data class SyncOperationResult(

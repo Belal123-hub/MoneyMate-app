@@ -26,9 +26,11 @@ import com.example.moneymate.utils.FileUtils
 import com.example.moneymate.utils.ScreenState
 import com.example.moneymate.utils.network.ConnectivityObserver
 import com.example.moneymate.ui.offline.SyncStatus
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -57,21 +59,104 @@ class AddTransactionViewModel(
     init {
         observeConnectivity()
         loadWallets()
-        loadCategories()
         loadTags()
+
+        // Handle categories with offline-first approach
+        viewModelScope.launch {
+            val isOnline = connectivityObserver.isOnline.first()
+
+            if (isOnline) {
+                // Preload categories to cache when online
+                println("📦 INIT: Online - preloading categories")
+                preloadCategoriesForOffline()
+                // Then load categories (will use cache)
+                loadCategories()
+
+                // DEBUG: Check Room after 3 seconds
+                delay(3000)
+                debugRoomCategories()
+            } else {
+                // Offline - just try to load from cache
+                println("📦 INIT: Offline - loading from cache")
+                loadCategories()
+
+                // DEBUG: Check Room immediately
+                debugRoomCategories()
+            }
+        }
     }
 
+    // Add this function to AddTransactionViewModel
+    private fun debugRoomCategories() {
+        viewModelScope.launch {
+            delay(2000) // Wait for any pending operations
+            println("🔍 DEBUG: Checking Room categories...")
+
+            // You'll need to access categoryDao. Since you don't have it directly,
+            // we'll use the repository and check what it returns
+            val expenseResult = getExpenseCategoriesUseCase()
+            if (expenseResult.isSuccess) {
+                val categories = expenseResult.getOrThrow()
+                println("🔍 DEBUG: getExpenseCategoriesUseCase returned ${categories.size} categories")
+            } else {
+                println("🔍 DEBUG: getExpenseCategoriesUseCase failed: ${expenseResult.exceptionOrNull()?.message}")
+            }
+
+            val incomeResult = getIncomeCategoriesUseCase()
+            if (incomeResult.isSuccess) {
+                val categories = incomeResult.getOrThrow()
+                println("🔍 DEBUG: getIncomeCategoriesUseCase returned ${categories.size} categories")
+            } else {
+                println("🔍 DEBUG: getIncomeCategoriesUseCase failed: ${incomeResult.exceptionOrNull()?.message}")
+            }
+        }
+    }
     private fun observeConnectivity() {
         viewModelScope.launch {
             connectivityObserver.isOnline.collect { isOnline ->
                 _uiState.value = _uiState.value.copy(
                     syncStatus = if (isOnline) SyncStatus.IDLE else SyncStatus.OFFLINE
                 )
+                // When coming back online, ensure categories are cached
+                if (isOnline) {
+                    preloadCategoriesForOffline()
+                }
             }
         }
     }
 
-     fun loadWallets() {
+    // NEW: Preload categories to Room for offline access
+    private fun preloadCategoriesForOffline() {
+        viewModelScope.launch {
+            val isOnline = connectivityObserver.isOnline.first()
+            if (!isOnline) {
+                println("📦 OFFLINE: Device offline, skipping preload")
+                return@launch
+            }
+
+            println("📦 OFFLINE: Preloading categories for offline use...")
+
+            // Force fetch and cache both types
+            val expenseResult = getExpenseCategoriesUseCase()
+            val incomeResult = getIncomeCategoriesUseCase()
+
+            if (expenseResult.isSuccess) {
+                val expenseCategories = expenseResult.getOrThrow()
+                println("✅ OFFLINE: Preloaded ${expenseCategories.size} expense categories")
+            } else {
+                println("⚠️ OFFLINE: Failed to preload expense categories: ${expenseResult.exceptionOrNull()?.message}")
+            }
+
+            if (incomeResult.isSuccess) {
+                val incomeCategories = incomeResult.getOrThrow()
+                println("✅ OFFLINE: Preloaded ${incomeCategories.size} income categories")
+            } else {
+                println("⚠️ OFFLINE: Failed to preload income categories: ${incomeResult.exceptionOrNull()?.message}")
+            }
+        }
+    }
+
+    fun loadWallets() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(walletsState = ScreenState.Loading)
 
@@ -100,7 +185,7 @@ class AddTransactionViewModel(
         }
     }
 
-     fun loadCategories() {
+    fun loadCategories() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(categoriesState = ScreenState.Loading)
 
@@ -123,10 +208,12 @@ class AddTransactionViewModel(
                             selectedCategoryName = firstCategory.name
                         )
                     }
+                    println("✅ Loaded ${categories.size} categories for type: ${_uiState.value.selectedType}")
                 } else {
                     _uiState.value = _uiState.value.copy(categoriesState = ScreenState.Success(emptyList()))
                 }
             } catch (e: Exception) {
+                println("⚠️ Error loading categories: ${e.message}")
                 _uiState.value = _uiState.value.copy(categoriesState = ScreenState.Success(emptyList()))
             }
         }
@@ -168,6 +255,7 @@ class AddTransactionViewModel(
         _uiState.value = _uiState.value.copy(selectedType = type)
         loadCategories()
     }
+
     fun onWalletSelected(walletId: Int, walletName: String) {
         // Find the wallet currency
         val wallets = when (val state = _uiState.value.walletsState) {
@@ -175,7 +263,7 @@ class AddTransactionViewModel(
             else -> emptyList()
         }
         val selectedWallet = wallets.find { it.id == walletId }
-        
+
         _uiState.value = _uiState.value.copy(
             selectedWalletId = walletId,
             selectedWalletName = walletName,
@@ -190,13 +278,13 @@ class AddTransactionViewModel(
             else -> emptyList()
         }
         val selectedWallet = wallets.find { it.id == walletId }
-        
+
         _uiState.value = _uiState.value.copy(
             destinationWalletId = walletId,
             destinationWalletName = walletName,
             destinationWalletCurrency = selectedWallet?.currency ?: "USD"
         )
-        
+
         // Load transfer preview if we have all required data
         loadTransferPreviewIfNeeded()
     }
@@ -205,7 +293,7 @@ class AddTransactionViewModel(
         val currentAmount = _uiState.value.amount
         val newAmount = if (currentAmount == "0") number else currentAmount + number
         _uiState.value = _uiState.value.copy(amount = newAmount)
-        
+
         // Load preview for transfers
         if (_uiState.value.selectedType == TransactionType.TRANSFER) {
             loadTransferPreviewIfNeeded()
@@ -219,7 +307,7 @@ class AddTransactionViewModel(
             _uiState.value = _uiState.value.copy(
                 amount = if (newAmount.isEmpty()) "0" else newAmount
             )
-            
+
             // Load preview for transfers
             if (_uiState.value.selectedType == TransactionType.TRANSFER) {
                 loadTransferPreviewIfNeeded()
@@ -236,15 +324,15 @@ class AddTransactionViewModel(
 
     private fun loadTransferPreviewIfNeeded() {
         val state = _uiState.value
-        
+
         // Only load if we have valid wallets and amount
-        if (state.selectedWalletId > 0 && 
+        if (state.selectedWalletId > 0 &&
             state.destinationWalletId > 0 &&
             state.selectedWalletId != state.destinationWalletId &&
-            state.amount.isNotEmpty() && 
+            state.amount.isNotEmpty() &&
             state.amount != "0" &&
             state.amount != "0.") {
-            
+
             loadTransferPreview(
                 sourceWalletId = state.selectedWalletId,
                 destinationWalletId = state.destinationWalletId,
@@ -263,13 +351,13 @@ class AddTransactionViewModel(
     ) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoadingPreview = true)
-            
+
             val result = getTransferPreviewUseCase(
                 sourceWalletId = sourceWalletId,
                 destinationWalletId = destinationWalletId,
                 amount = amount
             )
-            
+
             if (result.isSuccess) {
                 _uiState.value = _uiState.value.copy(
                     transferPreview = result.getOrNull(),
@@ -299,6 +387,7 @@ class AddTransactionViewModel(
     fun onNoteChanged(note: String) {
         _uiState.value = _uiState.value.copy(note = note)
     }
+
     fun onTagSelected(tagId: Int) {
         val currentTags = _uiState.value.selectedTagIds.toMutableList()
         if (currentTags.contains(tagId)) {
@@ -308,6 +397,7 @@ class AddTransactionViewModel(
         }
         _uiState.value = _uiState.value.copy(selectedTagIds = currentTags)
     }
+
     fun onCreateTag(name: String) {
         viewModelScope.launch {
             val tagName = name.trim().removePrefix("#")
@@ -537,6 +627,31 @@ class AddTransactionViewModel(
 
     fun clearNavigationEvent() {
         _navigationEvent.value = null
+    }
+
+    // Add to AddTransactionViewModel
+    fun forceCacheCategories() {
+        viewModelScope.launch {
+            println("📦 FORCE CACHE: Starting forced category cache...")
+
+            // Force fetch and cache expense categories
+            val expenseResult = getExpenseCategoriesUseCase()
+            if (expenseResult.isSuccess) {
+                val expenseCategories = expenseResult.getOrThrow()
+                println("📦 FORCE CACHE: Got ${expenseCategories.size} expense categories")
+            } else {
+                println("📦 FORCE CACHE: Failed to get expense categories: ${expenseResult.exceptionOrNull()?.message}")
+            }
+
+            // Force fetch and cache income categories
+            val incomeResult = getIncomeCategoriesUseCase()
+            if (incomeResult.isSuccess) {
+                val incomeCategories = incomeResult.getOrThrow()
+                println("📦 FORCE CACHE: Got ${incomeCategories.size} income categories")
+            } else {
+                println("📦 FORCE CACHE: Failed to get income categories: ${incomeResult.exceptionOrNull()?.message}")
+            }
+        }
     }
 }
 

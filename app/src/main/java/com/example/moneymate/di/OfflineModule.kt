@@ -2,10 +2,13 @@ package com.example.moneymate.di
 
 import androidx.room.Room
 import com.example.data.database.MIGRATION_1_2
+import com.example.data.database.MIGRATION_2_3
+import com.example.data.database.MIGRATION_3_4
 import com.example.data.database.MoneyMateDatabase
 import com.example.data.network.common.Network
 import com.example.data.network.category.CategoryRepositoryImpl
 import com.example.data.network.goal.GoalRepositoryImpl
+import com.example.data.network.tag.TagRepositoryImpl
 import com.example.data.network.sync.OfflineSyncApi
 import com.example.data.network.transaction.TransactionRepositoryImpl
 import com.example.data.network.wallet.WalletRepositoryImpl
@@ -13,10 +16,12 @@ import com.example.data.offline.OfflineSyncOrchestrator
 import com.example.data.offline.OfflineSyncStatusDataSource
 import com.example.data.offline.repository.OfflineCategoryRepositoryImpl
 import com.example.data.offline.repository.OfflineGoalRepositoryImpl
+import com.example.data.offline.repository.OfflineTagRepositoryImpl
 import com.example.data.offline.repository.OfflineTransactionRepositoryImpl
 import com.example.data.offline.repository.OfflineWalletRepositoryImpl
 import com.example.domain.category.CategoryRepository
 import com.example.domain.goal.GoalRepository
+import com.example.domain.tag.TagRepository
 import com.example.domain.transaction.TransactionRepository
 import com.example.domain.wallet.WalletRepository
 import com.example.moneymate.utils.network.ConnectivityObserver
@@ -32,6 +37,8 @@ val offlineModule = module {
             "moneymate_offline.db"
         )
             .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_2_3)
+            .addMigrations(MIGRATION_3_4)
             .build()
     }
 
@@ -42,6 +49,8 @@ val offlineModule = module {
     single { get<MoneyMateDatabase>().monthlySavingsGoalDao() }  // ← ADD THIS LINE
     single { get<MoneyMateDatabase>().syncMetadataDao() }
     single { get<MoneyMateDatabase>().pendingOperationDao() }
+    single { get<MoneyMateDatabase>().tagDao() }
+    single { get<MoneyMateDatabase>().budgetDao() }
 
     single<OfflineSyncApi> { Network.getApi(get()) }
 
@@ -52,6 +61,7 @@ val offlineModule = module {
             walletDao = get(),
             categoryDao = get(),
             goalDao = get(),
+            tagDao = get(),
             syncMetadataDao = get(),
             pendingOperationDao = get()
         )
@@ -84,6 +94,14 @@ val offlineModule = module {
         OfflineGoalRepositoryImpl(
             remoteRepository = get<GoalRepositoryImpl>(),
             goalDao = get(),
+            syncOrchestrator = get()
+        )
+    }
+
+    single<TagRepository> {
+        OfflineTagRepositoryImpl(
+            remoteRepository = get<TagRepositoryImpl>(),
+            tagDao = get(),
             syncOrchestrator = get()
         )
     }

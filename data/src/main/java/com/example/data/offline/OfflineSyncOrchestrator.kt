@@ -6,6 +6,7 @@ import com.example.data.database.dao.CategoryDao
 import com.example.data.database.dao.GoalDao
 import com.example.data.database.dao.PendingOperationDao
 import com.example.data.database.dao.SyncMetadataDao
+import com.example.data.database.dao.TagDao
 import com.example.data.database.dao.TransactionDao
 import com.example.data.database.dao.WalletDao
 import com.example.data.database.entity.PendingOperation
@@ -24,6 +25,7 @@ class OfflineSyncOrchestrator(
     private val walletDao: WalletDao,
     private val categoryDao: CategoryDao,
     private val goalDao: GoalDao,
+    private val tagDao: TagDao,
     private val syncMetadataDao: SyncMetadataDao,
     private val pendingOperationDao: PendingOperationDao
 ) {
@@ -172,8 +174,9 @@ class OfflineSyncOrchestrator(
             val walletsCount = body.wallets.size
             val goalsCount = body.goals.size
             val categoriesCount = body.categories.size
+            val tagsCount = body.tags.size
 
-            println("📥 OFFLINE_SYNC: Pull response - ${transactionsCount} transactions, ${walletsCount} wallets, ${goalsCount} goals, ${categoriesCount} categories")
+            println("📥 OFFLINE_SYNC: Pull response - ${transactionsCount} transactions, ${walletsCount} wallets, ${goalsCount} goals, ${categoriesCount} categories, ${tagsCount} tags")
 
             if (transactionsCount > 0) {
                 transactionDao.upsertTransactions(body.transactions.map { it.toEntity().toLocalEntity(now, true) })
@@ -190,6 +193,10 @@ class OfflineSyncOrchestrator(
             if (categoriesCount > 0) {
                 categoryDao.upsertCategories(body.categories.map { it.toDomain().toLocalEntity(now, true) })
                 println("📥 OFFLINE_SYNC: Updated ${categoriesCount} categories")
+            }
+            if (tagsCount > 0) {
+                tagDao.upsertTags(body.tags.map { it.toEntity().toLocalEntity(now, true) })
+                println("📥 OFFLINE_SYNC: Updated ${tagsCount} tags")
             }
 
             println("📥 OFFLINE_SYNC: Pull completed successfully")

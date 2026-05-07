@@ -22,7 +22,7 @@ val viewModelModule  = module {
     viewModel{ HomeViewModel(get(), get(),
         get(), get(), get(),
         get(), get(), get(),
-        get()) }
+        get(), get()) }
     viewModel{ WalletViewModel(get(), get(),
         get(), get(),get(),
         get(), get()) }
@@ -35,12 +35,16 @@ val viewModelModule  = module {
         get(), get()) }
     viewModel { ProfileOptionsScreenViewModel(get()) }
     viewModel { SettingsScreenViewModel(get(), get()) }
-    viewModel{ TransactionScreenViewModel(get(),
-        get() , get() ,
-        get(), get(),
-        get(), get(),
-        get(), get(),
-        get(), get()) }
+    viewModel{
+        TransactionScreenViewModel(
+            get(),
+            get(), get(),
+            get(), get(),
+            get(), get(),
+            get(), get(),
+            get(), get()
+        )
+    }
     viewModel { GoalScreenViewModel(get(), get(),
         get(), get(),
         get(), get(),

@@ -2,10 +2,12 @@ package com.example.data.database.mapper
 
 import com.example.data.database.entity.CategoryEntity
 import com.example.data.database.entity.GoalEntity
+import com.example.data.database.entity.TagEntity
 import com.example.data.database.entity.TransactionEntity
 import com.example.data.database.entity.WalletEntity
 import com.example.domain.category.model.Category
 import com.example.domain.goal.model.Goal
+import com.example.domain.tag.model.Tag
 import com.example.domain.transaction.model.TransactionEntity as DomainTransactionEntity
 import com.example.domain.wallet.model.Wallet
 
@@ -125,6 +127,23 @@ fun GoalEntity.toDomain(): Goal = Goal(
     amountSaved = amountSaved,
     walletId = walletId,
     currency = currency
+)
+
+fun Tag.toLocalEntity(
+    updatedAt: Long = System.currentTimeMillis(),
+    isSynced: Boolean = true
+): TagEntity = TagEntity(
+    id = id,
+    name = name,
+    userId = userId,
+    updatedAt = updatedAt,
+    isSynced = isSynced
+)
+
+fun TagEntity.toDomain(): Tag = Tag(
+    id = id,
+    name = name,
+    userId = userId ?: 0
 )
 
 fun toDomainTransaction(entity: TransactionEntity): com.example.domain.transaction.model.TransactionEntity {

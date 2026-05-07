@@ -6,18 +6,22 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.data.database.converter.DatabaseConverters
+import com.example.data.database.dao.BudgetDao
 import com.example.data.database.dao.CategoryDao
 import com.example.data.database.dao.GoalDao
 import com.example.data.database.dao.MonthlySavingsGoalDao
 import com.example.data.database.dao.PendingOperationDao
 import com.example.data.database.dao.SyncMetadataDao
+import com.example.data.database.dao.TagDao
 import com.example.data.database.dao.TransactionDao
 import com.example.data.database.dao.WalletDao
+import com.example.data.database.entity.BudgetEntity
 import com.example.data.database.entity.CategoryEntity
 import com.example.data.database.entity.GoalEntity
 import com.example.data.database.entity.MonthlySavingsGoalEntity
 import com.example.data.database.entity.PendingOperation
 import com.example.data.database.entity.SyncMetadata
+import com.example.data.database.entity.TagEntity
 import com.example.data.database.entity.TransactionEntity
 import com.example.data.database.entity.WalletEntity
 
@@ -47,6 +51,42 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL("""
+            CREATE TABLE IF NOT EXISTS tags (
+                id INTEGER NOT NULL PRIMARY KEY,
+                name TEXT NOT NULL,
+                user_id INTEGER,
+                updated_at INTEGER NOT NULL,
+                is_synced INTEGER NOT NULL
+            )
+        """)
+        database.execSQL("CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name)")
+    }
+}
+
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL("""
+            CREATE TABLE IF NOT EXISTS budgets (
+                id INTEGER NOT NULL PRIMARY KEY,
+                month INTEGER NOT NULL,
+                year INTEGER NOT NULL,
+                monthly_limit REAL NOT NULL,
+                daily_limit REAL NOT NULL,
+                monthly_spent REAL NOT NULL,
+                daily_spent REAL NOT NULL,
+                last_updated_date TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at INTEGER NOT NULL,
+                is_synced INTEGER NOT NULL
+            )
+        """)
+        database.execSQL("CREATE INDEX IF NOT EXISTS idx_budgets_year_month ON budgets(year, month)")
+    }
+}
+
 @Database(
     entities = [
         TransactionEntity::class,
@@ -55,9 +95,11 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         GoalEntity::class,
         SyncMetadata::class,
         PendingOperation::class,
-        MonthlySavingsGoalEntity::class
+        MonthlySavingsGoalEntity::class,
+        TagEntity::class,
+        BudgetEntity::class
     ],
-    version = 2,
+    version = 4,
     exportSchema = true
 )
 @TypeConverters(DatabaseConverters::class)
@@ -69,4 +111,6 @@ abstract class MoneyMateDatabase : RoomDatabase() {
     abstract fun monthlySavingsGoalDao(): MonthlySavingsGoalDao
     abstract fun syncMetadataDao(): SyncMetadataDao
     abstract fun pendingOperationDao(): PendingOperationDao
+    abstract fun tagDao(): TagDao
+    abstract fun budgetDao(): BudgetDao
 }
