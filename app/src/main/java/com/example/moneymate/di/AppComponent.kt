@@ -5,5 +5,6 @@ val appComponent = listOf(
     dataSourceModule,
     useCaseModule,
     networkModule,
-    viewModelModule
+    viewModelModule,
+    offlineModule
 )

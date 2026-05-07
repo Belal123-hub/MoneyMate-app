@@ -2,6 +2,7 @@ package com.example.moneymate.ui.screens.transaction
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.offline.OfflineSyncStatusDataSource
 import com.example.domain.transaction.model.CategorySummaryData
 import com.example.domain.transaction.model.ChartFilter
 import com.example.domain.transaction.model.ChartType
@@ -22,6 +23,8 @@ import com.example.domain.transaction.usecase.GetSpendingForecastUseCase
 import com.example.domain.transaction.usecase.GetTopCategoriesCurrentMonthUseCase
 import com.example.moneymate.utils.DataSyncManager
 import com.example.moneymate.utils.ScreenState
+import com.example.moneymate.utils.network.ConnectivityObserver
+import com.example.moneymate.ui.offline.SyncStatus
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,7 +40,9 @@ class TransactionScreenViewModel(
     private val getAverageSpendingUseCase: GetAverageSpendingUseCase,
     private val getSavingsForecastUseCase: GetSavingsForecastUseCase,
     private val getSpendingForecastUseCase: GetSpendingForecastUseCase,
-    private val getSavingsSuggestionsUseCase: GetSavingsSuggestionsUseCase
+    private val getSavingsSuggestionsUseCase: GetSavingsSuggestionsUseCase,
+    private val offlineSyncStatusDataSource: OfflineSyncStatusDataSource,
+    private val connectivityObserver: ConnectivityObserver
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TransactionScreenState())
@@ -46,9 +51,32 @@ class TransactionScreenViewModel(
     init {
         println("DEBUG: TransactionScreenViewModel init - loading data")
         loadData()
+        observeUnsyncedTransactions()
+        observeConnectivity()
 
         // Listen for data change events
         setupDataChangeListener()
+    }
+
+    private fun observeUnsyncedTransactions() {
+        viewModelScope.launch {
+            offlineSyncStatusDataSource.observeUnsyncedTransactionIds().collect { ids ->
+                _uiState.value = _uiState.value.copy(
+                    unsyncedTransactionIds = ids,
+                    syncStatus = if (ids.isEmpty()) _uiState.value.syncStatus else SyncStatus.SYNCING
+                )
+            }
+        }
+    }
+
+    private fun observeConnectivity() {
+        viewModelScope.launch {
+            connectivityObserver.isOnline.collect { isOnline ->
+                _uiState.value = _uiState.value.copy(
+                    syncStatus = if (!isOnline) SyncStatus.OFFLINE else if (_uiState.value.unsyncedTransactionIds.isEmpty()) SyncStatus.IDLE else SyncStatus.SYNCING
+                )
+            }
+        }
     }
 
     private fun setupDataChangeListener() {
@@ -312,7 +340,8 @@ class TransactionScreenViewModel(
                 if (result.isSuccess) {
                     val transactions = result.getOrNull() ?: emptyList()
                     _uiState.value = _uiState.value.copy(
-                        transactionsState = ScreenState.Success(transactions)
+                        transactionsState = ScreenState.Success(transactions),
+                        unsyncedTransactionIds = offlineSyncStatusDataSource.getUnsyncedTransactionIds().toSet()
                     )
                     println("DEBUG: Loaded ${transactions.size} transactions")
                 } else {
@@ -760,7 +789,9 @@ class TransactionScreenViewModel(
 
 data class TransactionScreenState(
     val chartsState: ScreenState<TransactionChartsData> = ScreenState.Loading,
-    val transactionsState: ScreenState<List<TransactionEntity>> = ScreenState.Loading
+    val transactionsState: ScreenState<List<TransactionEntity>> = ScreenState.Loading,
+    val unsyncedTransactionIds: Set<Int> = emptySet(),
+    val syncStatus: SyncStatus = SyncStatus.IDLE
 ) {
     // Helper properties for backward compatibility
     val isLoading: Boolean

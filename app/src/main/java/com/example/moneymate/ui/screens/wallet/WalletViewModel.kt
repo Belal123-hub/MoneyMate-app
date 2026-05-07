@@ -14,6 +14,8 @@ import com.example.domain.wallet.usecase.GetWalletsUseCase
 import com.example.domain.wallet.usecase.UpdateWalletUseCase
 import com.example.moneymate.utils.DataSyncManager
 import com.example.moneymate.utils.ScreenState
+import com.example.moneymate.ui.offline.SyncStatus
+import com.example.moneymate.utils.network.ConnectivityObserver
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,7 +27,8 @@ class WalletViewModel(
     private val getWalletDetailUseCase: GetWalletDetailUseCase,
     private val deleteWalletUseCase: DeleteWalletUseCase,
     private val updateWalletUseCase: UpdateWalletUseCase,
-    private val getWalletTransactionsUseCase: GetWalletTransactionsUseCase
+    private val getWalletTransactionsUseCase: GetWalletTransactionsUseCase,
+    private val connectivityObserver: ConnectivityObserver
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(WalletScreenState())
@@ -34,9 +37,20 @@ class WalletViewModel(
     init {
         println("DEBUG: WalletViewModel init - loading wallets")
         loadWallets()
+        observeConnectivity()
 
         // Listen for data change events
         setupDataChangeListener()
+    }
+
+    private fun observeConnectivity() {
+        viewModelScope.launch {
+            connectivityObserver.isOnline.collect { isOnline ->
+                _uiState.value = _uiState.value.copy(
+                    syncStatus = if (isOnline) SyncStatus.IDLE else SyncStatus.OFFLINE
+                )
+            }
+        }
     }
 
     private fun setupDataChangeListener() {
@@ -353,7 +367,8 @@ data class WalletScreenState(
 
     // UI states
     val selectedWallet: Wallet? = null,
-    val showDeleteDialog: Boolean = false
+    val showDeleteDialog: Boolean = false,
+    val syncStatus: SyncStatus = SyncStatus.IDLE
 ) {
     // Helper properties for backward compatibility
     val isLoading: Boolean

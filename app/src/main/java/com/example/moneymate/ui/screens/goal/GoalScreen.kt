@@ -42,6 +42,8 @@ import com.example.moneymate.ui.components.states.FullScreenError
 import com.example.moneymate.ui.components.states.FullScreenLoading
 import com.example.moneymate.ui.components.states.SectionStateManager
 import com.example.moneymate.ui.navigation.BottomNavigationBar
+import com.example.moneymate.ui.offline.SyncStatus
+import com.example.moneymate.ui.offline.SyncStatusIndicator
 import com.example.moneymate.ui.screens.goal.component.NotificationToggle
 import com.example.moneymate.ui.screens.goal.component.SavingSummaryChartSection
 import com.example.moneymate.ui.screens.goal.component.SavingsGoalSection
@@ -50,6 +52,7 @@ import com.example.moneymate.utils.ScreenState
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -138,14 +141,22 @@ fun GoalScreen(
         Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
             when (val state = uiState.budgetState) {
                 is ScreenState.Loading -> FullScreenLoading(message = "Loading...")
-                is ScreenState.Error -> FullScreenError(error = state.error, onRetry = { viewModel.loadBudgetData() })
-                is ScreenState.Success -> {
-                    val budget = state.data
+                is ScreenState.Error, is ScreenState.Empty, is ScreenState.Success -> {
+                    val budget = when (state) {
+                        is ScreenState.Success -> state.data
+                        else -> uiState.budget ?: createDefaultBudgetForUi()
+                    }
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
+                        item {
+                            SyncStatusIndicator(
+                                status = if (uiState.budgetState is ScreenState.Loading) SyncStatus.SYNCING else uiState.syncStatus,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                        }
                         // 1. Savings Goal
                         item {
                             SavingsGoalSection(
@@ -155,10 +166,10 @@ fun GoalScreen(
                                 startDate = formattedStartDate,
                                 endDate = formattedEndDate,
                                 onEditClick = {
-                                    uiState.savingsGoal?.let { goal ->
-                                        newSavingsGoalAmount = String.format("%.0f", goal.targetAmount)
-                                        showEditSavingsGoalDialog = true
-                                    }
+                                    newSavingsGoalAmount = uiState.savingsGoal
+                                        ?.let { goal -> String.format("%.0f", goal.targetAmount) }
+                                        ?: ""
+                                    showEditSavingsGoalDialog = true
                                 },
                                 onPeriodClick = { viewModel.toggleDateRangePicker(true) }
                             )
@@ -277,31 +288,6 @@ fun GoalScreen(
                                 modifier = Modifier.padding(top = 16.dp)
                             )
                         }
-                    }
-                }
-                is ScreenState.Empty -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        EmptyState(
-                            title = "No Budget",
-                            message = "Set up a budget.",
-                            icon = Icons.Default.Payments
-                        )
-
-                        // Show goals section even when no budget
-                        GoalsListSection(
-                            goalsState = uiState.goalsState,
-                            onGoalClick = { goal ->
-                                navController?.navigate("goalDetail/${goal.id}")
-                            },
-                            onSeeAllClick = {
-                                navController?.navigate("goalsList")
-                            }
-                        )
                     }
                 }
             }
@@ -504,6 +490,21 @@ fun GoalScreen(
 fun getMonthName(month: Int): String {
     val months = arrayOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
     return if (month in 1..12) months[month - 1] else "Month"
+}
+
+private fun createDefaultBudgetForUi(): Budget {
+    val now = Calendar.getInstance()
+    return Budget(
+        id = 0,
+        month = now.get(Calendar.MONTH) + 1,
+        year = now.get(Calendar.YEAR),
+        monthlyLimit = 0.0,
+        dailyLimit = 0.0,
+        monthlySpent = 0.0,
+        dailySpent = 0.0,
+        lastUpdatedDate = "",
+        createdAt = ""
+    )
 }
 
 @Composable

@@ -74,6 +74,7 @@ import com.example.domain.wallet.model.Wallet
 import com.example.moneymate.ui.components.states.FullScreenError
 import com.example.moneymate.ui.components.states.FullScreenLoading
 import com.example.moneymate.ui.components.states.SectionStateManager
+import com.example.moneymate.ui.offline.SyncStatusIndicator
 import com.example.moneymate.ui.screens.transaction.component.TransactionTextField
 import com.example.moneymate.utils.IconMapper
 import com.example.moneymate.utils.ScreenState
@@ -201,12 +202,6 @@ fun AddTransactionScreen(
                     uiState.tagsState is ScreenState.Loading -> {
                 FullScreenLoading(message = "Loading transaction data...")
             }
-            uiState.walletsState is ScreenState.Error -> {
-                FullScreenError(
-                    error = (uiState.walletsState as ScreenState.Error).error,
-                    onRetry = { viewModel.loadWallets() }
-                )
-            }
             else -> {
                 Column(
                     modifier = Modifier
@@ -215,6 +210,10 @@ fun AddTransactionScreen(
                         .padding(paddingValues)
                         .verticalScroll(rememberScrollState())
                 ) {
+                    SyncStatusIndicator(
+                        status = uiState.syncStatus,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
                     TransactionTypeSelector(
                         selectedType = uiState.selectedType,
                         onTypeSelected = viewModel::onTransactionTypeSelected

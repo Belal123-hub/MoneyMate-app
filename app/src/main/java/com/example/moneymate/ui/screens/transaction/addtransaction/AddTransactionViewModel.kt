@@ -24,6 +24,8 @@ import com.example.moneymate.utils.DataSyncManager
 import com.example.moneymate.utils.ErrorHandler
 import com.example.moneymate.utils.FileUtils
 import com.example.moneymate.utils.ScreenState
+import com.example.moneymate.utils.network.ConnectivityObserver
+import com.example.moneymate.ui.offline.SyncStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,7 +40,8 @@ class AddTransactionViewModel(
     private val getIncomeCategoriesUseCase: GetIncomeCategoriesUseCase,
     private val getExpenseCategoriesUseCase: GetExpenseCategoriesUseCase,
     private val getTagsUseCase: GetTagsUseCase,
-    private val createTagUseCase: CreateTagUseCase
+    private val createTagUseCase: CreateTagUseCase,
+    private val connectivityObserver: ConnectivityObserver
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AddTransactionState())
@@ -52,9 +55,20 @@ class AddTransactionViewModel(
     }
 
     init {
+        observeConnectivity()
         loadWallets()
         loadCategories()
         loadTags()
+    }
+
+    private fun observeConnectivity() {
+        viewModelScope.launch {
+            connectivityObserver.isOnline.collect { isOnline ->
+                _uiState.value = _uiState.value.copy(
+                    syncStatus = if (isOnline) SyncStatus.IDLE else SyncStatus.OFFLINE
+                )
+            }
+        }
     }
 
      fun loadWallets() {
@@ -78,21 +92,10 @@ class AddTransactionViewModel(
                         )
                     }
                 } else {
-                    val exception = result.exceptionOrNull() ?: Exception("Unknown error loading wallets")
-                    _uiState.value = _uiState.value.copy(
-                        walletsState = ScreenState.Error(
-                            ErrorHandler.mapExceptionToAppError(exception),
-                            retryAction = { loadWallets() }
-                        )
-                    )
+                    _uiState.value = _uiState.value.copy(walletsState = ScreenState.Success(emptyList()))
                 }
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(
-                    walletsState = ScreenState.Error(
-                        ErrorHandler.mapExceptionToAppError(e),
-                        retryAction = { loadWallets() }
-                    )
-                )
+                _uiState.value = _uiState.value.copy(walletsState = ScreenState.Success(emptyList()))
             }
         }
     }
@@ -121,21 +124,10 @@ class AddTransactionViewModel(
                         )
                     }
                 } else {
-                    val exception = result.exceptionOrNull() ?: Exception("Error loading categories")
-                    _uiState.value = _uiState.value.copy(
-                        categoriesState = ScreenState.Error(
-                            ErrorHandler.mapExceptionToAppError(exception),
-                            retryAction = { loadCategories() }
-                        )
-                    )
+                    _uiState.value = _uiState.value.copy(categoriesState = ScreenState.Success(emptyList()))
                 }
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(
-                    categoriesState = ScreenState.Error(
-                        ErrorHandler.mapExceptionToAppError(e),
-                        retryAction = { loadCategories() }
-                    )
-                )
+                _uiState.value = _uiState.value.copy(categoriesState = ScreenState.Success(emptyList()))
             }
         }
     }
@@ -574,7 +566,8 @@ data class AddTransactionState(
     val sourceWalletCurrency: String = "USD",
     val destinationWalletCurrency: String = "USD",
     val transferPreview: TransferPreview? = null,
-    val isLoadingPreview: Boolean = false
+    val isLoadingPreview: Boolean = false,
+    val syncStatus: SyncStatus = SyncStatus.IDLE
 )
 
 enum class TransactionType(val displayName: String, val apiValue: String) {

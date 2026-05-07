@@ -5,11 +5,13 @@ import android.annotation.SuppressLint
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -36,6 +38,10 @@ import com.example.moneymate.ui.components.states.FullScreenError
 import com.example.moneymate.ui.components.states.FullScreenLoading
 import com.example.moneymate.ui.components.states.SectionStateManager
 import com.example.moneymate.ui.navigation.BottomNavigationBar
+import com.example.moneymate.ui.offline.OfflineSnackbarHost
+import com.example.moneymate.ui.offline.SyncStatus
+import com.example.moneymate.ui.offline.SyncStatusIndicator
+import com.example.moneymate.ui.offline.UnsyncedTransactionBadge
 import com.example.moneymate.ui.screens.transaction.component.SwipeableChartContainer
 import com.example.moneymate.ui.screens.transaction.component.TransactionListItem
 import com.example.moneymate.ui.screens.transaction.component.TransactionTopBar
@@ -102,7 +108,7 @@ fun TransactionScreen(
                 onNavigationItemSelected = onNavigationItemSelected
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { OfflineSnackbarHost(isOffline = uiState.syncStatus == SyncStatus.OFFLINE, snackbarHostState = snackbarHostState) }
     ) { paddingValues ->
         // Main content with state management
         when {
@@ -127,6 +133,13 @@ fun TransactionScreen(
                         .background(Color.White)
                 ) {
                     // Charts section with state management
+                    item {
+                        SyncStatusIndicator(
+                            status = uiState.syncStatus,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
+
                     item {
                         SectionStateManager(
                             state = uiState.chartsState,
@@ -218,7 +231,17 @@ fun TransactionScreen(
                             val transactions = (uiState.transactionsState as com.example.moneymate.utils.ScreenState.Success).data
                             if (transactions.isNotEmpty()) {
                                 items(transactions) { transaction ->
-                                    TransactionListItem(transaction = transaction)
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        TransactionListItem(transaction = transaction)
+                                        UnsyncedTransactionBadge(
+                                            isSynced = !uiState.unsyncedTransactionIds.contains(transaction.id)
+                                        )
+                                    }
                                 }
                             }
                         }

@@ -117,52 +117,12 @@ fun SavingsGoalsSection(
                     modifier = Modifier.fillMaxWidth()
                 )
             } else {
-                // Fallback hardcoded data if no savings goal is set
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        SavingsGoalCard(
-                            goalName = "iPhone 13 Mini",
-                            savedAmount = 699.0,
-                            targetAmount = 1499.0,
-                            currencySymbol = currencySymbol,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        SavingsGoalCard(
-                            goalName = "Car",
-                            savedAmount = 20000.0,
-                            targetAmount = 30500.0,
-                            currencySymbol = currencySymbol,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        SavingsGoalCard(
-                            goalName = "Macbook Pro M1",
-                            savedAmount = 1200.0,
-                            targetAmount = 1499.0,
-                            currencySymbol = currencySymbol,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        SavingsGoalCard(
-                            goalName = "House",
-                            savedAmount = 15000.0,
-                            targetAmount = 30500.0,
-                            currencySymbol = currencySymbol,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
+                Text(
+                    text = "No savings goal data available yet",
+                    color = Color(0xFF666666),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
     }
@@ -446,9 +406,9 @@ fun NoBudgetLimitContent(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Use BudgetGauge for no limit case (progress = 1.0)
+            // No limit configured: keep gauge at 0% to avoid false "critical" red state.
             BudgetGauge(
-                progress = 1.0f, // Full gauge for no limit
+                progress = 0f,
                 spentAmount = budget.monthlySpent,
                 limitAmount = 0.0,
                 currencySymbol = currencySymbol,
@@ -490,14 +450,14 @@ fun DesignBudgetContent(
         NoBudgetLimitContent(
             budget = Budget(
                 id = 1,
-                month = 11,
-                year = 2025,
+                month = 1,
+                year = 2024,
                 monthlyLimit = 0.0,
                 dailyLimit = 0.0,
-                monthlySpent = 276.0,
-                dailySpent = 25.0,
-                lastUpdatedDate = "2025-11-28",
-                createdAt = "2025-11-19T21:33:15"
+                monthlySpent = 0.0,
+                dailySpent = 0.0,
+                lastUpdatedDate = "",
+                createdAt = ""
             ),
             currencySymbol = currencySymbol
         )

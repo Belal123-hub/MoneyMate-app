@@ -2,13 +2,14 @@ package com.example.moneymate.ui.screens.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.database.dao.MonthlySavingsGoalDao
+import com.example.data.database.dao.TransactionDao
+import com.example.data.database.dao.WalletDao
 import com.example.domain.budget.model.Budget
 import com.example.domain.budget.usecase.GetCurrentBudgetUseCase
 import com.example.domain.savingsGoal.model.SavingsGoal
 import com.example.domain.savingsGoal.usecase.GetCurrentSavingsGoalUseCase
-import com.example.domain.transaction.model.SavingsTrendsData
 import com.example.domain.transaction.model.TransactionEntity
-import com.example.domain.transaction.usecase.GetSavingsTrendsUseCase
 import com.example.domain.transaction.usecase.GetTransactionsUseCase
 import com.example.domain.user.model.UserDetailedData
 import com.example.domain.user.usecase.GetUserDetailedUseCase
@@ -16,10 +17,13 @@ import com.example.domain.wallet.model.TotalBalance
 import com.example.domain.wallet.usecase.GetTotalBalanceUseCase
 import com.example.moneymate.utils.DataSyncManager
 import com.example.moneymate.utils.ScreenState
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import com.example.moneymate.utils.network.ConnectivityObserver
+import com.example.moneymate.ui.offline.SyncStatus
+import com.example.domain.user.model.StatsData
+import com.example.domain.user.model.User
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 class HomeViewModel(
     private val getUserDetailedUseCase: GetUserDetailedUseCase,
@@ -27,47 +31,63 @@ class HomeViewModel(
     private val getTransactionsUseCase: GetTransactionsUseCase,
     private val getBudgetUseCase: GetCurrentBudgetUseCase,
     private val getCurrentSavingsGoalUseCase: GetCurrentSavingsGoalUseCase,
-    private val getSavingsTrendsUseCase: GetSavingsTrendsUseCase
+    private val connectivityObserver: ConnectivityObserver,
+    private val walletDao: WalletDao,
+    private val transactionDao: TransactionDao,
+    private val monthlySavingsGoalDao: MonthlySavingsGoalDao  // ← NEW
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeScreenState())
     val uiState: StateFlow<HomeScreenState> = _uiState.asStateFlow()
 
     init {
-        println("DEBUG: HomeViewModel init - loading data")
+        println("DEBUG: HomeViewModel init - loading data from Room FIRST")
+        loadFromRoomWhenOffline()
         loadAllData()
         setupDataChangeListener()
+        observeConnectivity()
+    }
+
+    private fun observeConnectivity() {
+        viewModelScope.launch {
+            connectivityObserver.isOnline.collect { isOnline ->
+                _uiState.update { it.copy(syncStatus = if (isOnline) SyncStatus.SYNCING else SyncStatus.OFFLINE) }
+                if (isOnline) {
+                    refreshFromRemote()
+                }
+            }
+        }
     }
 
     private fun setupDataChangeListener() {
         viewModelScope.launch {
             DataSyncManager.dataChangeEvents.collect { event ->
                 when (event) {
-                    is DataSyncManager.DataChangeEvent.TransactionsUpdated -> {
-                        println("🔄 DEBUG: HomeViewModel - Transaction update detected, refreshing...")
-                        refreshTransactionData()
-                    }
-                    is DataSyncManager.DataChangeEvent.BudgetUpdated -> {
-                        println("🔄 DEBUG: HomeViewModel - Budget update detected, refreshing savings...")
-                        loadSavingsData()
-                    }
+                    is DataSyncManager.DataChangeEvent.TransactionsUpdated,
                     is DataSyncManager.DataChangeEvent.WalletsUpdated -> {
-                        println("🔄 DEBUG: HomeViewModel - Wallet update detected, refreshing balance...")
-                        loadTotalBalance()
+                        println("🔄 DEBUG: HomeViewModel - Data changed, reloading from Room")
+                        loadFromRoomWhenOffline()
                     }
-                    is DataSyncManager.DataChangeEvent.UserDataUpdated -> {
-                        println("🔄 DEBUG: HomeViewModel - User data update detected, refreshing...")
-                        loadUserData()
-                    }
-                    else -> {
-                    }
+                    else -> {}
                 }
             }
         }
     }
-    private fun refreshTransactionData() {
+
+    fun loadAllData() {
         viewModelScope.launch {
-            println("🔄 DEBUG: HomeViewModel - Refreshing transaction data...")
+            val isOnline = connectivityObserver.isOnline.first()
+            if (isOnline) {
+                refreshFromRemote()
+            }
+        }
+    }
+
+    private fun refreshFromRemote() {
+        viewModelScope.launch {
+            println("📱 DEBUG: HomeViewModel - Refreshing from remote")
+            loadUserData()
+            loadTotalBalance()
             loadFinancialOverview()
             loadRecentTransactions()
             loadBudgetData()
@@ -75,163 +95,72 @@ class HomeViewModel(
         }
     }
 
-    fun loadAllData() {
-        loadUserData()
-        loadTotalBalance()
-        loadFinancialOverview()
-        loadRecentTransactions()
-        loadBudgetData()
-        loadSavingsData()
-    }
-
     fun loadBudgetData() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(budgetState = ScreenState.Loading)
             try {
-                println("DEBUG: HomeViewModel - Loading budget data...")
                 val result = getBudgetUseCase()
-
                 if (result.isSuccess) {
                     val budgetData = result.getOrThrow()
-                    _uiState.value = _uiState.value.copy(
-                        budgetState = ScreenState.Success(budgetData)
-                    )
-                    println("DEBUG: HomeViewModel - Loaded budget data: $budgetData")
-                } else {
-                    val exception = result.exceptionOrNull() ?: Exception("Failed to load budget data")
-                    _uiState.value = _uiState.value.copy(
-                        budgetState = ScreenState.Error(
-                            com.example.moneymate.utils.ErrorHandler.mapExceptionToAppError(exception),
-                            retryAction = { loadBudgetData() }
-                        )
-                    )
+                    _uiState.update { it.copy(budgetState = ScreenState.Success(budgetData)) }
                 }
             } catch (e: Exception) {
-                println("DEBUG: HomeViewModel - Error loading budget data: ${e.message}")
-                _uiState.value = _uiState.value.copy(
-                    budgetState = ScreenState.Error(
-                        com.example.moneymate.utils.ErrorHandler.mapExceptionToAppError(e),
-                        retryAction = { loadBudgetData() }
-                    )
-                )
+                println("DEBUG: HomeViewModel - Error loading budget: ${e.message}")
             }
         }
     }
 
     fun loadUserData() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(userDataState = ScreenState.Loading)
             try {
-                println("DEBUG: HomeViewModel - Loading user data...")
                 val data = getUserDetailedUseCase()
-                println("DEBUG: HomeViewModel - Loaded user data: $data")
-                println("DEBUG: HomeViewModel - User fullName: ${data.user.fullName}")
-                println("DEBUG: HomeViewModel - Stats: ${data.stats}")
-
-                _uiState.value = _uiState.value.copy(
-                    userDataState = ScreenState.Success(data)
-                )
+                _uiState.update { it.copy(userDataState = ScreenState.Success(data)) }
             } catch (e: Exception) {
-                println("DEBUG: HomeViewModel - Error loading user data: ${e.message}")
-                _uiState.value = _uiState.value.copy(
-                    userDataState = ScreenState.Error(
-                        com.example.moneymate.utils.ErrorHandler.mapExceptionToAppError(e),
-                        retryAction = { loadUserData() }
-                    )
-                )
+                println("DEBUG: HomeViewModel - Error loading user: ${e.message}")
             }
         }
     }
 
     fun loadTotalBalance() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(balanceState = ScreenState.Loading)
-
             try {
-                println("DEBUG: HomeViewModel - Loading total balance...")
                 val result = getTotalBalanceUseCase()
                 if (result.isSuccess) {
                     val balance = result.getOrNull()
-                    _uiState.value = _uiState.value.copy(
-                        balanceState = ScreenState.Success(balance)
-                    )
-                    println("DEBUG: HomeViewModel - Loaded total balance: $balance")
-                } else {
-                    val exception = result.exceptionOrNull() ?: Exception("Failed to load balance")
-                    _uiState.value = _uiState.value.copy(
-                        balanceState = ScreenState.Error(
-                            com.example.moneymate.utils.ErrorHandler.mapExceptionToAppError(exception),
-                            retryAction = { loadTotalBalance() }
-                        )
-                    )
+                    _uiState.update { it.copy(balanceState = ScreenState.Success(balance)) }
                 }
             } catch (e: Exception) {
-                println("DEBUG: HomeViewModel - Error loading total balance: ${e.message}")
-                _uiState.value = _uiState.value.copy(
-                    balanceState = ScreenState.Error(
-                        com.example.moneymate.utils.ErrorHandler.mapExceptionToAppError(e),
-                        retryAction = { loadTotalBalance() }
-                    )
-                )
+                println("DEBUG: HomeViewModel - Error loading balance: ${e.message}")
             }
         }
     }
 
     fun loadFinancialOverview() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(financialOverviewState = ScreenState.Loading)
             try {
-                println("DEBUG: HomeViewModel - Loading financial overview...")
                 val result = getTransactionsUseCase()
-
                 if (result.isSuccess) {
                     val transactions = result.getOrThrow()
                     val (totalIncome, totalExpense) = calculateFinancialTotals(transactions)
-
-                    _uiState.value = _uiState.value.copy(
-                        financialOverviewState = ScreenState.Success(
-                            FinancialOverviewData(
-                                totalIncome = totalIncome,
-                                totalExpense = totalExpense
+                    _uiState.update {
+                        it.copy(
+                            financialOverviewState = ScreenState.Success(
+                                FinancialOverviewData(totalIncome = totalIncome, totalExpense = totalExpense)
                             )
                         )
-                    )
-                    println("DEBUG: HomeViewModel - Loaded financial overview: Income=$$totalIncome, Expense=$$totalExpense")
-                } else {
-                    val exception = result.exceptionOrNull() ?: Exception("Failed to load transactions")
-                    _uiState.value = _uiState.value.copy(
-                        financialOverviewState = ScreenState.Error(
-                            com.example.moneymate.utils.ErrorHandler.mapExceptionToAppError(exception),
-                            retryAction = { loadFinancialOverview() }
-                        )
-                    )
+                    }
                 }
             } catch (e: Exception) {
                 println("DEBUG: HomeViewModel - Error loading financial overview: ${e.message}")
-                _uiState.value = _uiState.value.copy(
-                    financialOverviewState = ScreenState.Error(
-                        com.example.moneymate.utils.ErrorHandler.mapExceptionToAppError(e),
-                        retryAction = { loadFinancialOverview() }
-                    )
-                )
             }
         }
     }
 
     fun loadRecentTransactions() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(recentTransactionsState = ScreenState.Loading)
             try {
-                println("DEBUG: HomeViewModel - Loading recent transactions...")
                 val result = getTransactionsUseCase()
-
                 if (result.isSuccess) {
                     val allTransactions = result.getOrThrow()
-
-                    println("DEBUG: All transactions (${allTransactions.size}) loaded:")
-                    allTransactions.forEachIndexed { index, transaction ->
-                        println("DEBUG: $index: ID ${transaction.id} - '${transaction.name}' - Date: ${transaction.transactionDate}")
-                    }
                     val sortedTransactions = allTransactions.sortedWith(
                         compareByDescending<TransactionEntity> {
                             try {
@@ -242,98 +171,254 @@ class HomeViewModel(
                         }.thenByDescending { it.id ?: 0 }
                     )
                     val recentTransactions = sortedTransactions.take(5)
-
-                    println("DEBUG: Showing ${recentTransactions.size} recent transactions (sorted newest first):")
-                    recentTransactions.forEachIndexed { index, transaction ->
-                        println("DEBUG: Recent $index: ID ${transaction.id} - '${transaction.name}' - Date: ${transaction.transactionDate}")
+                    _uiState.update {
+                        it.copy(recentTransactionsState = ScreenState.Success(recentTransactions))
                     }
-
-                    _uiState.value = _uiState.value.copy(
-                        recentTransactionsState = ScreenState.Success(recentTransactions)
-                    )
-                    println("DEBUG: HomeViewModel - Loaded ${recentTransactions.size} recent transactions")
-                } else {
-                    val exception = result.exceptionOrNull() ?: Exception("Failed to load transactions")
-                    println("DEBUG: HomeViewModel - Error loading transactions: ${exception.message}")
-                    _uiState.value = _uiState.value.copy(
-                        recentTransactionsState = ScreenState.Error(
-                            com.example.moneymate.utils.ErrorHandler.mapExceptionToAppError(exception),
-                            retryAction = { loadRecentTransactions() }
-                        )
-                    )
                 }
             } catch (e: Exception) {
                 println("DEBUG: HomeViewModel - Error loading recent transactions: ${e.message}")
-                _uiState.value = _uiState.value.copy(
-                    recentTransactionsState = ScreenState.Error(
-                        com.example.moneymate.utils.ErrorHandler.mapExceptionToAppError(e),
-                        retryAction = { loadRecentTransactions() }
-                    )
-                )
             }
         }
     }
 
     fun refreshOnScreenFocus() {
         viewModelScope.launch {
-            println("🔄 DEBUG: HomeViewModel - Screen focused, refreshing data...")
-            loadAllData()
+            println("🔄 DEBUG: HomeViewModel - Screen focused")
+            loadFromRoomWhenOffline()
+            val isOnline = connectivityObserver.isOnline.first()
+            if (isOnline) {
+                refreshFromRemote()
+            }
         }
     }
 
     private fun calculateFinancialTotals(transactions: List<TransactionEntity>): Pair<Double, Double> {
         var totalIncome = 0.0
         var totalExpense = 0.0
-
         transactions.forEach { transaction ->
             val amount = try {
                 transaction.amount.toDouble()
             } catch (e: NumberFormatException) {
                 0.0
             }
-
             when (transaction.type.lowercase()) {
                 "income" -> totalIncome += amount
                 "expense" -> totalExpense += amount
             }
         }
-
         return Pair(totalIncome, totalExpense)
     }
 
     fun loadSavingsData() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(savingsGoalState = ScreenState.Loading)
             try {
-                println("DEBUG: HomeViewModel - Loading savings goal data...")
                 val result = getCurrentSavingsGoalUseCase()
                 if (result.isSuccess) {
                     val savingsGoal = result.getOrNull()
-                    _uiState.value = _uiState.value.copy(
-                        savingsGoalState = ScreenState.Success(savingsGoal)
-                    )
-                    println("DEBUG: HomeViewModel - Loaded savings goal: $savingsGoal")
-                } else {
-                    val exception = result.exceptionOrNull() ?: Exception("Failed to load savings goal")
-                    _uiState.value = _uiState.value.copy(
-                        savingsGoalState = ScreenState.Error(
-                            com.example.moneymate.utils.ErrorHandler.mapExceptionToAppError(exception),
-                            retryAction = { loadSavingsData() }
+                    _uiState.update { it.copy(savingsGoalState = ScreenState.Success(savingsGoal)) }
+                }
+            } catch (e: Exception) {
+                println("DEBUG: HomeViewModel - Error loading savings: ${e.message}")
+            }
+        }
+    }
+
+    // ============================================================
+    // MAIN OFFLINE LOADER - Complete version
+    // ============================================================
+    private fun loadFromRoomWhenOffline() {
+        viewModelScope.launch {
+            println("📱 DEBUG: HomeViewModel - Loading from Room (offline-first)")
+
+            try {
+                // 1. Load wallets and calculate balance
+                val wallets = walletDao.getWallets()
+                val totalBalanceValue = wallets.sumOf { (it.balance ?: it.initialBalance).toDouble() }
+
+                _uiState.update {
+                    it.copy(
+                        balanceState = ScreenState.Success(
+                            TotalBalance(
+                                totalBalance = totalBalanceValue,
+                                currency = "USD",
+                                breakdown = emptyMap()
+                            )
                         )
                     )
                 }
-            } catch (e: Exception) {
-                println("DEBUG: HomeViewModel - Error loading savings goal: ${e.message}")
-                _uiState.value = _uiState.value.copy(
-                    savingsGoalState = ScreenState.Error(
-                        com.example.moneymate.utils.ErrorHandler.mapExceptionToAppError(e),
-                        retryAction = { loadSavingsData() }
-                    )
+                println("📱 DEBUG: HomeViewModel - Balance loaded: $totalBalanceValue from ${wallets.size} wallets")
+
+                // 2. Load transactions
+                val allTransactions = transactionDao.getTransactions()
+                val domainTransactions = allTransactions.map { convertTransactionEntityToDomain(it) }
+
+                // 3. Recent transactions
+                val sortedTransactions = domainTransactions.sortedWith(
+                    compareByDescending<TransactionEntity> {
+                        try {
+                            java.time.LocalDate.parse(it.transactionDate)
+                        } catch (e: Exception) {
+                            java.time.LocalDate.MIN
+                        }
+                    }.thenByDescending { it.id ?: 0 }
                 )
+                val recentTransactions = sortedTransactions.take(5)
+
+                _uiState.update {
+                    it.copy(
+                        recentTransactionsState = if (recentTransactions.isEmpty()) ScreenState.Empty
+                        else ScreenState.Success(recentTransactions)
+                    )
+                }
+                println("📱 DEBUG: HomeViewModel - Recent transactions: ${recentTransactions.size}")
+
+                // 4. Financial overview
+                var totalIncome = 0.0
+                var totalExpense = 0.0
+                allTransactions.forEach { t ->
+                    val amount = t.amount.toDouble()
+                    when (t.type.lowercase()) {
+                        "income" -> totalIncome += amount
+                        "expense" -> totalExpense += amount
+                    }
+                }
+
+                _uiState.update {
+                    it.copy(
+                        financialOverviewState = ScreenState.Success(
+                            FinancialOverviewData(totalIncome = totalIncome, totalExpense = totalExpense)
+                        )
+                    )
+                }
+                println("📱 DEBUG: HomeViewModel - Financial overview: Income=$totalIncome, Expense=$totalExpense")
+
+                // 5. Load Monthly Savings Goal (from new entity)
+                try {
+                    val currentDate = java.time.LocalDate.now()
+                    val currentMonth = currentDate.monthValue
+                    val currentYear = currentDate.year
+
+                    val savingsGoalEntity = monthlySavingsGoalDao.getMonthlySavingsGoalByMonth(currentYear, currentMonth)
+
+                    if (savingsGoalEntity != null) {
+                        val savingsGoal = SavingsGoal(
+                            id = savingsGoalEntity.id,
+                            month = savingsGoalEntity.month,
+                            year = savingsGoalEntity.year,
+                            targetAmount = savingsGoalEntity.targetAmount,
+                            currentSaved = savingsGoalEntity.currentSaved
+                        )
+                        _uiState.update {
+                            it.copy(savingsGoalState = ScreenState.Success(savingsGoal))
+                        }
+                        println("📱 DEBUG: HomeViewModel - Loaded monthly savings goal: ${savingsGoal.month}/${savingsGoal.year}")
+                    } else {
+                        // Try to get most recent goal
+                        val allGoals = monthlySavingsGoalDao.getMonthlySavingsGoals()
+                        val mostRecent = allGoals.firstOrNull()
+                        if (mostRecent != null) {
+                            val savingsGoal = SavingsGoal(
+                                id = mostRecent.id,
+                                month = mostRecent.month,
+                                year = mostRecent.year,
+                                targetAmount = mostRecent.targetAmount,
+                                currentSaved = mostRecent.currentSaved
+                            )
+                            _uiState.update {
+                                it.copy(savingsGoalState = ScreenState.Success(savingsGoal))
+                            }
+                            println("📱 DEBUG: HomeViewModel - Loaded most recent savings goal: ${savingsGoal.month}/${savingsGoal.year}")
+                        } else {
+                            _uiState.update { it.copy(savingsGoalState = ScreenState.Empty) }
+                            println("📱 DEBUG: HomeViewModel - No monthly savings goals found in Room")
+                        }
+                    }
+                } catch (e: Exception) {
+                    println("📱 ERROR: HomeViewModel - Failed to load monthly savings goal: ${e.message}")
+                    _uiState.update { it.copy(savingsGoalState = ScreenState.Empty) }
+                }
+
+                // 6. User data (fallback)
+                _uiState.update {
+                    it.copy(
+                        userDataState = ScreenState.Success(
+                            UserDetailedData(
+                                user = User(
+                                    id = "offline-user",
+                                    email = "",
+                                    fullName = "Offline Mode",
+                                    phoneNumber = null,
+                                    dateOfBirth = null,
+                                    avatarUrl = null,
+                                    defaultCurrency = "USD",
+                                    createdAt = ""
+                                ),
+                                stats = StatsData(
+                                    walletCount = wallets.size,
+                                    totalTransactions = allTransactions.size,
+                                    expenseCount = allTransactions.count { it.type.lowercase() == "expense" },
+                                    incomeCount = allTransactions.count { it.type.lowercase() == "income" }
+                                )
+                            )
+                        )
+                    )
+                }
+
+                // 7. Budget state (offline fallback computed from local transactions)
+                val now = LocalDate.now()
+                val monthlyExpense = allTransactions
+                    .filter { transaction ->
+                        parseLocalDate(transaction.transactionDate)?.let { date ->
+                            date.year == now.year && date.monthValue == now.monthValue
+                        } ?: false
+                    }
+                    .filter { it.type.equals("expense", ignoreCase = true) }
+                    .sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
+
+                val todayExpense = allTransactions
+                    .filter { transaction ->
+                        parseLocalDate(transaction.transactionDate) == now
+                    }
+                    .filter { it.type.equals("expense", ignoreCase = true) }
+                    .sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
+
+                _uiState.update {
+                    it.copy(
+                        budgetState = ScreenState.Success(
+                            Budget(
+                                id = 0,
+                                month = now.monthValue,
+                                year = now.year,
+                                monthlyLimit = 0.0,
+                                dailyLimit = 0.0,
+                                monthlySpent = monthlyExpense,
+                                dailySpent = todayExpense,
+                                lastUpdatedDate = now.toString(),
+                                createdAt = ""
+                            )
+                        )
+                    )
+                }
+
+            } catch (e: Exception) {
+                println("📱 ERROR: HomeViewModel - Failed to load from Room: ${e.message}")
+                e.printStackTrace()
+                _uiState.update {
+                    it.copy(
+                        balanceState = ScreenState.Error(
+                            com.example.moneymate.utils.ErrorHandler.mapExceptionToAppError(e),
+                            retryAction = { loadFromRoomWhenOffline() }
+                        )
+                    )
+                }
             }
         }
     }
 }
+
+// ============================================================
+// DATA CLASSES
+// ============================================================
 
 data class HomeScreenState(
     val userDataState: ScreenState<UserDetailedData> = ScreenState.Loading,
@@ -341,7 +426,8 @@ data class HomeScreenState(
     val financialOverviewState: ScreenState<FinancialOverviewData> = ScreenState.Loading,
     val recentTransactionsState: ScreenState<List<TransactionEntity>> = ScreenState.Loading,
     val budgetState: ScreenState<Budget?> = ScreenState.Loading,
-    val savingsGoalState: ScreenState<SavingsGoal?> = ScreenState.Loading
+    val savingsGoalState: ScreenState<SavingsGoal?> = ScreenState.Loading,
+    val syncStatus: SyncStatus = SyncStatus.IDLE
 ) {
     val isLoading: Boolean
         get() = userDataState is ScreenState.Loading &&
@@ -393,3 +479,30 @@ data class FinancialOverviewData(
     val totalIncome: Double,
     val totalExpense: Double
 )
+
+// ============================================================
+// CONVERTER FUNCTIONS
+// ============================================================
+private fun convertTransactionEntityToDomain(entity: com.example.data.database.entity.TransactionEntity): TransactionEntity {
+    return TransactionEntity(
+        id = entity.id,
+        name = entity.name,
+        amount = entity.amount,
+        type = entity.type,
+        categoryId = entity.categoryId,
+        walletId = entity.walletId,
+        userId = entity.userId,
+        transactionDate = entity.transactionDate,
+        note = entity.note,
+        createdAt = entity.createdAt
+    )
+}
+
+private fun parseLocalDate(rawDate: String?): LocalDate? {
+    if (rawDate.isNullOrBlank()) return null
+    return try {
+        LocalDate.parse(rawDate.take(10))
+    } catch (e: Exception) {
+        null
+    }
+}

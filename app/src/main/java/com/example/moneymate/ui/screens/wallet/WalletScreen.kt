@@ -61,6 +61,8 @@ import com.example.moneymate.ui.components.states.FullScreenError
 import com.example.moneymate.ui.components.states.FullScreenLoading
 import com.example.moneymate.ui.components.states.SectionStateManager
 import com.example.moneymate.ui.navigation.BottomNavigationBar
+import com.example.moneymate.ui.offline.SyncStatus
+import com.example.moneymate.ui.offline.SyncStatusIndicator
 import com.example.moneymate.ui.screens.home.AddRecordButton
 import com.example.moneymate.utils.CurrencyUtils.getCurrencySymbol
 import com.example.moneymate.utils.ScreenState
@@ -191,6 +193,10 @@ fun WalletScreen(
                                 modifier = Modifier.padding(16.dp)
                             ) {
                                 Spacer(modifier = Modifier.height(24.dp))
+                                SyncStatusIndicator(
+                                    status = if (uiState.walletsState is ScreenState.Loading) SyncStatus.SYNCING else uiState.syncStatus,
+                                    modifier = Modifier.padding(bottom = 12.dp)
+                                )
 
                                 // Wallets Cards Section with state management
                                 SectionStateManager(

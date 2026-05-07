@@ -192,20 +192,15 @@ fun HomeScreen(
                                     if (userData.stats.walletCount == 0 && userData.stats.totalTransactions == 0) {
                                         FirstLoginContent()
                                     } else {
-                                        SectionStateManager(
-                                            state = uiState.budgetState,
-                                            onRetry = { viewModel.loadBudgetData() }
-                                        ) { budgetData ->
-                                            RegularHomeContent(
-                                                recentTransactions = uiState.recentTransactions,
-                                                budgetData = budgetData,
-                                                savingsGoal = uiState.savingsGoal,
-                                                currencySymbol = currencySymbol,
-                                                onSeeAllBudget = onSeeAllBudget,
-                                                onSeeAllTransactions = onSeeAllTransactions,
-                                                isInLazyColumn = true
-                                            )
-                                        }
+                                        RegularHomeContent(
+                                            recentTransactions = uiState.recentTransactions,
+                                            budgetData = uiState.budgetData,
+                                            savingsGoal = uiState.savingsGoal,
+                                            currencySymbol = currencySymbol,
+                                            onSeeAllBudget = onSeeAllBudget,
+                                            onSeeAllTransactions = onSeeAllTransactions,
+                                            isInLazyColumn = true
+                                        )
                                     }
                                 }
                             }

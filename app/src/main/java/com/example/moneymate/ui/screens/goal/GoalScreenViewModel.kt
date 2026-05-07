@@ -2,6 +2,9 @@ package com.example.moneymate.ui.screens.goal
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.database.dao.MonthlySavingsGoalDao
+import com.example.data.database.dao.TransactionDao
+import com.example.data.database.entity.MonthlySavingsGoalEntity
 import com.example.domain.budget.model.Budget
 import com.example.domain.budget.usecase.GetCurrentBudgetUseCase
 import com.example.domain.budget.usecase.UpdateBudgetUseCase
@@ -28,12 +31,15 @@ import com.example.domain.wallet.model.TotalBalance
 import com.example.domain.wallet.usecase.GetTotalBalanceUseCase
 import com.example.moneymate.utils.DataSyncManager
 import com.example.moneymate.utils.ScreenState
+import com.example.moneymate.ui.offline.SyncStatus
+import com.example.moneymate.utils.network.ConnectivityObserver
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
+import java.time.LocalDate
 import java.util.*
 
 class GoalScreenViewModel(
@@ -47,7 +53,10 @@ class GoalScreenViewModel(
     private val getSavingsTrendsUseCase: GetSavingsTrendsUseCase,
     private val getSavingsForecastUseCase: GetSavingsForecastUseCase,
     private val getGoalsUseCase: GetGoalsUseCase,
-    private val getTotalBalanceUseCase: GetTotalBalanceUseCase
+    private val getTotalBalanceUseCase: GetTotalBalanceUseCase,
+    private val connectivityObserver: ConnectivityObserver,
+    private val transactionDao: TransactionDao,
+    private val monthlySavingsGoalDao: MonthlySavingsGoalDao
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(GoalScreenState())
@@ -56,6 +65,17 @@ class GoalScreenViewModel(
     init {
         loadAllData()
         setupDataChangeListener()
+        observeConnectivity()
+    }
+
+    private fun observeConnectivity() {
+        viewModelScope.launch {
+            connectivityObserver.isOnline.collect { isOnline ->
+                _uiState.update {
+                    it.copy(syncStatus = if (isOnline) SyncStatus.IDLE else SyncStatus.OFFLINE)
+                }
+            }
+        }
     }
 
     private fun loadAllData() {
@@ -313,25 +333,10 @@ class GoalScreenViewModel(
                         )
                     }
                 } else {
-                    val exception = result.exceptionOrNull() ?: Exception("Failed to load budget")
-                    _uiState.update {
-                        it.copy(
-                            budgetState = ScreenState.Error(
-                                com.example.moneymate.utils.ErrorHandler.mapExceptionToAppError(exception),
-                                retryAction = { loadBudgetData() }
-                            )
-                        )
-                    }
+                    loadOfflineBudgetFallback()
                 }
             } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(
-                        budgetState = ScreenState.Error(
-                            com.example.moneymate.utils.ErrorHandler.mapExceptionToAppError(e),
-                            retryAction = { loadBudgetData() }
-                        )
-                    )
-                }
+                loadOfflineBudgetFallback()
             }
         }
     }
@@ -376,10 +381,10 @@ class GoalScreenViewModel(
                         )
                     }
                 } else {
-                    _uiState.update { it.copy(isSavingsGoalLoading = false, savingsGoalError = "Failed to load goal") }
+                    loadOfflineSavingsGoalFallback()
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(isSavingsGoalLoading = false, savingsGoalError = e.message) }
+                loadOfflineSavingsGoalFallback()
             }
         }
     }
@@ -390,12 +395,14 @@ class GoalScreenViewModel(
             try {
                 val result = updateSavingsGoalUseCase(targetAmount)
                 if (result.isSuccess) {
-                    _uiState.update { it.copy(savingsGoal = result.getOrThrow(), isSavingsGoalUpdating = false) }
+                    val updatedGoal = result.getOrThrow()
+                    upsertSavingsGoalLocally(updatedGoal, isSynced = true)
+                    _uiState.update { it.copy(savingsGoal = updatedGoal, isSavingsGoalUpdating = false) }
                 } else {
-                    _uiState.update { it.copy(isSavingsGoalUpdating = false) }
+                    saveSavingsGoalOffline(targetAmount)
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(isSavingsGoalUpdating = false) }
+                saveSavingsGoalOffline(targetAmount)
             }
         }
     }
@@ -508,6 +515,129 @@ class GoalScreenViewModel(
         val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
         return dateFormat.format(calendar.time)
     }
+
+    private suspend fun loadOfflineBudgetFallback() {
+        try {
+            val now = LocalDate.now()
+            val transactions = transactionDao.getTransactions()
+
+            val monthlyExpense = transactions
+                .filter { parseLocalDate(it.transactionDate)?.let { date ->
+                    date.year == now.year && date.monthValue == now.monthValue
+                } ?: false }
+                .filter { it.type.equals("expense", ignoreCase = true) }
+                .sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
+
+            val todayExpense = transactions
+                .filter { parseLocalDate(it.transactionDate) == now }
+                .filter { it.type.equals("expense", ignoreCase = true) }
+                .sumOf { it.amount.toDoubleOrNull() ?: 0.0 }
+
+            val fallbackBudget = Budget(
+                id = 0,
+                month = now.monthValue,
+                year = now.year,
+                monthlyLimit = 0.0,
+                dailyLimit = 0.0,
+                monthlySpent = monthlyExpense,
+                dailySpent = todayExpense,
+                lastUpdatedDate = now.toString(),
+                createdAt = ""
+            )
+
+            _uiState.update {
+                it.copy(
+                    budgetState = ScreenState.Success(fallbackBudget),
+                    budget = fallbackBudget
+                )
+            }
+        } catch (e: Exception) {
+            val now = LocalDate.now()
+            val safeDefaultBudget = Budget(
+                id = 0,
+                month = now.monthValue,
+                year = now.year,
+                monthlyLimit = 0.0,
+                dailyLimit = 0.0,
+                monthlySpent = 0.0,
+                dailySpent = 0.0,
+                lastUpdatedDate = now.toString(),
+                createdAt = ""
+            )
+            _uiState.update {
+                it.copy(
+                    budgetState = ScreenState.Success(safeDefaultBudget),
+                    budget = safeDefaultBudget
+                )
+            }
+        }
+    }
+
+    private suspend fun loadOfflineSavingsGoalFallback() {
+        val now = LocalDate.now()
+        val monthGoal = monthlySavingsGoalDao.getMonthlySavingsGoalByMonth(now.year, now.monthValue)
+        val fallbackGoal = when {
+            monthGoal != null -> SavingsGoal(
+                id = monthGoal.id,
+                month = monthGoal.month,
+                year = monthGoal.year,
+                targetAmount = monthGoal.targetAmount,
+                currentSaved = monthGoal.currentSaved
+            )
+            else -> null
+        }
+
+        _uiState.update {
+            it.copy(
+                savingsGoal = fallbackGoal,
+                isSavingsGoalLoading = false,
+                savingsGoalError = null
+            )
+        }
+    }
+
+    private suspend fun saveSavingsGoalOffline(targetAmount: Double) {
+        val now = LocalDate.now()
+        val existing = monthlySavingsGoalDao.getMonthlySavingsGoalByMonth(now.year, now.monthValue)
+        val goalId = existing?.id ?: generateOfflineGoalId()
+        val currentSaved = existing?.currentSaved ?: _uiState.value.savingsGoal?.currentSaved ?: 0.0
+
+        val localGoal = SavingsGoal(
+            id = goalId,
+            month = now.monthValue,
+            year = now.year,
+            targetAmount = targetAmount,
+            currentSaved = currentSaved
+        )
+
+        upsertSavingsGoalLocally(localGoal, isSynced = false)
+        _uiState.update {
+            it.copy(
+                savingsGoal = localGoal,
+                isSavingsGoalUpdating = false,
+                savingsGoalError = null
+            )
+        }
+    }
+
+    private suspend fun upsertSavingsGoalLocally(goal: SavingsGoal, isSynced: Boolean) {
+        monthlySavingsGoalDao.upsertMonthlySavingsGoal(
+            MonthlySavingsGoalEntity(
+                id = goal.id,
+                month = goal.month,
+                year = goal.year,
+                targetAmount = goal.targetAmount,
+                currentSaved = goal.currentSaved,
+                updatedAt = System.currentTimeMillis(),
+                isSynced = isSynced
+            )
+        )
+    }
+
+    private fun generateOfflineGoalId(): Int {
+        return -((System.currentTimeMillis() % Int.MAX_VALUE).toInt().coerceAtLeast(1))
+    }
+
     fun onPeriodSelected(period: Int) {
         _uiState.update { it.copy(selectedPeriod = period) }
         loadSavingsTrends()
@@ -525,6 +655,15 @@ class GoalScreenViewModel(
                 // Silently fail - forecast is optional
             }
         }
+    }
+}
+
+private fun parseLocalDate(rawDate: String?): LocalDate? {
+    if (rawDate.isNullOrBlank()) return null
+    return try {
+        LocalDate.parse(rawDate.take(10))
+    } catch (e: Exception) {
+        null
     }
 }
 
@@ -575,5 +714,6 @@ data class GoalScreenState(
 
     // Goals
     val goalsState: ScreenState<List<Goal>> = ScreenState.Loading,
-    val goals: List<Goal> = emptyList()
+    val goals: List<Goal> = emptyList(),
+    val syncStatus: SyncStatus = SyncStatus.IDLE
 )

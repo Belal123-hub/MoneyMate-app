@@ -73,6 +73,9 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.serialization)
     implementation(libs.logging.interceptor)
+    // room + work manager (offline sync)
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.work.runtime.ktx)
     // coil
     implementation("io.coil-kt:coil-compose:2.4.0")
     // icon
