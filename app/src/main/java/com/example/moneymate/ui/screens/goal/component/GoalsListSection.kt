@@ -22,6 +22,7 @@ import com.example.moneymate.utils.ScreenState
 @Composable
 fun GoalsListSection(
     goalsState: ScreenState<List<Goal>>,
+    unsyncedGoalIds: Set<Int> = emptySet(),
     onGoalClick: (Goal) -> Unit,
     onSeeAllClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -114,6 +115,7 @@ fun GoalsListSection(
                         items(goals) { goal ->
                             GoalCard(
                                 goal = goal,
+                                isSynced = !unsyncedGoalIds.contains(goal.id),
                                 onClick = { onGoalClick(goal) }
                             )
                         }

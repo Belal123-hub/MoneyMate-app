@@ -1,8 +1,8 @@
 package com.example.moneymate.utils
 
 object Config {
-    // This should come from your build config or dependency injection
-    const val BASE_URL = "http://10.0.2.2:8000"
+    // Same host/port as `Network.BASE_URL` (images / relative asset URLs).
+    const val BASE_URL = "http://10.20.105.58:5143"
 
     // Helper function to build full URL for relative paths
     fun buildImageUrl(relativePath: String?): String? {

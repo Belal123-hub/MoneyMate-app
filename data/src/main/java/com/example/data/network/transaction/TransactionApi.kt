@@ -27,6 +27,11 @@ import retrofit2.http.Query
 
 interface TransactionApi {
 
+    /**
+     * Direct REST create. Backend note: this path may use incremental savings recording (e.g. income-only),
+     * while **sync push** uses full savings recomputation. Clients should refresh
+     * `GET /api/savings_goals/current` after success if they cache monthly savings locally.
+     */
     @POST("api/transactions/")
     suspend fun createTransaction(@Body request: TransactionCreateRequest): Response<TransactionDto>
 

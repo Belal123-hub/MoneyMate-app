@@ -1,6 +1,7 @@
 package com.example.moneymate.ui.screens.transaction.component
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,43 +15,55 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.domain.transaction.model.TransactionEntity
+import com.example.moneymate.ui.offline.PendingSyncIndicator
 import java.text.SimpleDateFormat
 import java.util.Locale
 
 @Composable
 fun TransactionListItem(
     transaction: TransactionEntity,
+    isSynced: Boolean = true,
     modifier: Modifier = Modifier
 ) {
-    Row(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        Column(
-            modifier = Modifier.weight(1f)
+        PendingSyncIndicator(
+            isSynced = isSynced,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = transaction.name,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.Black
+                )
+                Text(
+                    text = formatTransactionDate(transaction.transactionDate),
+                    fontSize = 12.sp,
+                    color = Color(0xFF666666)
+                )
+            }
+
             Text(
-                text = transaction. name,
+                text = formatAmount(transaction.amount.toString(), transaction.type),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium,
-                color = Color.Black
-            )
-            Text(
-                text = formatTransactionDate(transaction.transactionDate),
-                fontSize = 12.sp,
-                color = Color(0xFF666666)
+                color = getAmountColor(transaction.type)
             )
         }
-
-        Text(
-            text = formatAmount(transaction.amount.toString(), transaction.type),
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Medium,
-            color = getAmountColor(transaction.type)
-        )
     }
 }
 

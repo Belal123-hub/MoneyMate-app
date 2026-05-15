@@ -3,6 +3,7 @@ package com.example.moneymate.ui.screens.wallet
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -61,6 +63,7 @@ import com.example.moneymate.ui.components.states.FullScreenError
 import com.example.moneymate.ui.components.states.FullScreenLoading
 import com.example.moneymate.ui.components.states.SectionStateManager
 import com.example.moneymate.ui.navigation.BottomNavigationBar
+import com.example.moneymate.ui.offline.PendingSyncIndicator
 import com.example.moneymate.ui.offline.SyncStatus
 import com.example.moneymate.ui.offline.SyncStatusIndicator
 import com.example.moneymate.ui.screens.home.AddRecordButton
@@ -206,6 +209,7 @@ fun WalletScreen(
                                     WalletsCardsSection(
                                         wallets = wallets,
                                         selectedWallet = uiState.selectedWallet,
+                                        unsyncedWalletIds = uiState.unsyncedWalletIds,
                                         onWalletSelected = viewModel::selectWallet,
                                         onWalletDetail = { wallet ->
                                             wallet.id?.let { walletId ->
@@ -232,6 +236,7 @@ fun WalletScreen(
                                 TransactionsSection(
                                     transactions = transactions,
                                     availableTags = availableTags,
+                                    unsyncedTransactionIds = uiState.unsyncedTransactionIds,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = 16.dp),
@@ -254,6 +259,7 @@ fun WalletScreen(
 private fun WalletsCardsSection(
     wallets: List<Wallet>,
     selectedWallet: Wallet?,
+    unsyncedWalletIds: Set<Int>,
     onWalletSelected: (Wallet) -> Unit,
     onWalletDetail: (Wallet) -> Unit,
     onCreateNewWallet: () -> Unit,
@@ -270,13 +276,14 @@ private fun WalletsCardsSection(
 
             // Wallet Cards
             items(wallets) { wallet ->
+                val walletId = wallet.id
+                val pendingSync = walletId != null && walletId in unsyncedWalletIds
                 WalletCardItem(
                     wallet = wallet,
                     isSelected = wallet.id == selectedWallet?.id,
-                    onSelected = {
-                        onWalletSelected(wallet)
-                        onWalletDetail(wallet)
-                    }
+                    pendingSync = pendingSync,
+                    onSelect = { onWalletSelected(wallet) },
+                    onOpenDetails = { onWalletDetail(wallet) }
                 )
             }
         }
@@ -355,7 +362,9 @@ private fun AddWalletCard(onClick: () -> Unit) {
 private fun WalletCardItem(
     wallet: Wallet,
     isSelected: Boolean,
-    onSelected: () -> Unit
+    pendingSync: Boolean,
+    onSelect: () -> Unit,
+    onOpenDetails: () -> Unit
 ) {
     val walletColor = try {
         Color(android.graphics.Color.parseColor(wallet.color))
@@ -370,6 +379,8 @@ private fun WalletCardItem(
         val brightness = (walletColor.red * 299 + walletColor.green * 587 + walletColor.blue * 114) / 1000
         if (brightness > 0.5) Color.Black else Color.White
     }
+    val selectInteractionSource = remember { MutableInteractionSource() }
+    val bottomInteractionSource = remember { MutableInteractionSource() }
     Card(
         modifier = Modifier
             .width(271.dp)
@@ -381,8 +392,7 @@ private fun WalletCardItem(
         colors = CardDefaults.cardColors(
             containerColor = Color.Transparent
         ),
-        border = if (isSelected) BorderStroke(2.dp, Color(0xFF4D6BFA)) else null,
-        onClick = onSelected
+        border = if (isSelected) BorderStroke(2.dp, Color(0xFF4D6BFA)) else null
     ) {
         Column(
             modifier = Modifier.fillMaxSize()
@@ -400,46 +410,78 @@ private fun WalletCardItem(
                     )
                     .padding(12.dp)
             ) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable(
+                                interactionSource = selectInteractionSource,
+                                indication = null,
+                                onClick = onSelect
+                            ),
+                        verticalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(end = 40.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Column {
+                                Text(
+                                    text = "Total Balance",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = textColor
+                                )
+                                Text(
+                                    text = "$currencySymbol${wallet.balance ?: "0.00"}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = textColor,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                             Text(
-                                text = "Total Balance",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = textColor
-                            )
-                            Text(
-                                text = "$currencySymbol${wallet.balance ?: "0.00"}",
+                                text = when (wallet.walletType) {
+                                    "debit_card" -> "VISA"
+                                    "credit_card" -> "VISA"
+                                    else -> wallet.walletType.replace("_", " ").uppercase()
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = textColor,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Medium
                             )
                         }
+
                         Text(
-                            text = when (wallet.walletType) {
-                                "debit_card" -> "VISA"
-                                "credit_card" -> "VISA"
-                                else -> wallet.walletType.replace("_", " ").uppercase()
-                            },
-                            style = MaterialTheme.typography.labelSmall,
+                            text = formatCardNumber(wallet.cardNumber ?: ""),
+                            style = MaterialTheme.typography.bodySmall,
                             color = textColor,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
+                            letterSpacing = 1.sp
                         )
                     }
-
-                    Text(
-                        text = formatCardNumber(wallet.cardNumber ?: ""),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = textColor,
-                        fontWeight = FontWeight.Medium,
-                        letterSpacing = 1.sp
-                    )
+                    IconButton(
+                        onClick = onOpenDetails,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowForward,
+                            contentDescription = "Wallet details",
+                            tint = textColor,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    if (pendingSync) {
+                        PendingSyncIndicator(
+                            isSynced = false,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(top = 32.dp, end = 4.dp)
+                        )
+                    }
                 }
             }
             Box(
@@ -451,6 +493,11 @@ private fun WalletCardItem(
                             bottomStart = 10.dp,
                             bottomEnd = 10.dp
                         )
+                    )
+                    .clickable(
+                        interactionSource = bottomInteractionSource,
+                        indication = null,
+                        onClick = onSelect
                     )
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {

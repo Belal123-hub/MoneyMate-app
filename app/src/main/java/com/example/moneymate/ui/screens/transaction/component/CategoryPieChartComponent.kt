@@ -31,7 +31,14 @@ fun CategoryPieChartComponent(
     modifier: Modifier = Modifier
 ) {
     val categories = categorySummaryData.expenses
-    val totalAmount = categorySummaryData.totalExpenses
+    // Some backends occasionally return `totalExpenses = 0` while still returning per-category totals.
+    // Fall back to summing categories so the chart can render.
+    val computedTotal = categories.sumOf { it.totalAmount }
+    val totalAmount = if (categorySummaryData.totalExpenses > 0.0) {
+        categorySummaryData.totalExpenses
+    } else {
+        computedTotal
+    }
 
     // Handle empty state
     if (categories.isEmpty() || totalAmount == 0.0) {

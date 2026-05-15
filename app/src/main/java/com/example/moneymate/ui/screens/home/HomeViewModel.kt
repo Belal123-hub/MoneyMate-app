@@ -18,6 +18,8 @@ import com.example.domain.user.model.UserDetailedData
 import com.example.domain.user.usecase.GetUserDetailedUseCase
 import com.example.domain.wallet.model.TotalBalance
 import com.example.domain.wallet.usecase.GetTotalBalanceUseCase
+import com.example.data.offline.MonthlySavingsLocalRecalculator
+import com.example.data.offline.OfflineSyncStatusDataSource
 import com.example.moneymate.utils.DataSyncManager
 import com.example.moneymate.utils.ScreenState
 import com.example.moneymate.utils.network.ConnectivityObserver
@@ -38,7 +40,9 @@ class HomeViewModel(
     private val walletDao: WalletDao,
     private val transactionDao: TransactionDao,
     private val monthlySavingsGoalDao: MonthlySavingsGoalDao,  // ← NEW
-    private val budgetDao: BudgetDao
+    private val monthlySavingsLocalRecalculator: MonthlySavingsLocalRecalculator,
+    private val budgetDao: BudgetDao,
+    private val offlineSyncStatusDataSource: OfflineSyncStatusDataSource
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeScreenState())
@@ -50,6 +54,15 @@ class HomeViewModel(
         loadAllData()
         setupDataChangeListener()
         observeConnectivity()
+        observeUnsyncedTransactions()
+    }
+
+    private fun observeUnsyncedTransactions() {
+        viewModelScope.launch {
+            offlineSyncStatusDataSource.observeUnsyncedTransactionIds().collect { ids ->
+                _uiState.update { it.copy(unsyncedTransactionIds = ids) }
+            }
+        }
     }
 
     private fun observeConnectivity() {
@@ -67,9 +80,16 @@ class HomeViewModel(
         viewModelScope.launch {
             DataSyncManager.dataChangeEvents.collect { event ->
                 when (event) {
-                    is DataSyncManager.DataChangeEvent.TransactionsUpdated,
+                    is DataSyncManager.DataChangeEvent.TransactionsUpdated -> {
+                        println("🔄 DEBUG: HomeViewModel - Transactions updated, SAVINGS_RECALC then reload from Room")
+                        monthlySavingsLocalRecalculator.recalculateAllCachedMonths()
+                        loadFromRoomWhenOffline()
+                        if (connectivityObserver.isOnline.first()) {
+                            loadSavingsData()
+                        }
+                    }
                     is DataSyncManager.DataChangeEvent.WalletsUpdated -> {
-                        println("🔄 DEBUG: HomeViewModel - Data changed, reloading from Room")
+                        println("🔄 DEBUG: HomeViewModel - Wallets changed, reloading from Room")
                         loadFromRoomWhenOffline()
                     }
                     else -> {}
@@ -242,24 +262,65 @@ class HomeViewModel(
                     val savingsGoal = result.getOrNull()
                     if (savingsGoal != null) {
                         try {
-                            monthlySavingsGoalDao.upsertMonthlySavingsGoal(
+                            val unsyncedTx = transactionDao.getUnsyncedTransactions().isNotEmpty()
+                            val existing = monthlySavingsGoalDao.getMonthlySavingsGoalByMonth(
+                                savingsGoal.year,
+                                savingsGoal.month
+                            )
+                            val entityToStore = if (unsyncedTx && existing != null) {
+                                println(
+                                    "📦 Home Savings: Unsynced transactions present — not overwriting " +
+                                        "current_saved/anchor from GET (API=${savingsGoal.currentSaved}, local=${existing.currentSaved})"
+                                )
+                                MonthlySavingsGoalEntity(
+                                    id = savingsGoal.id,
+                                    month = savingsGoal.month,
+                                    year = savingsGoal.year,
+                                    targetAmount = savingsGoal.targetAmount,
+                                    currentSaved = existing.currentSaved,
+                                    savingsTxNetAnchor = existing.savingsTxNetAnchor,
+                                    updatedAt = System.currentTimeMillis(),
+                                    isSynced = existing.isSynced
+                                )
+                            } else {
                                 MonthlySavingsGoalEntity(
                                     id = savingsGoal.id,
                                     month = savingsGoal.month,
                                     year = savingsGoal.year,
                                     targetAmount = savingsGoal.targetAmount,
                                     currentSaved = savingsGoal.currentSaved,
+                                    savingsTxNetAnchor = null,
                                     updatedAt = System.currentTimeMillis(),
                                     isSynced = true
                                 )
-                            )
+                            }
+                            monthlySavingsGoalDao.upsertMonthlySavingsGoal(entityToStore)
                             println("📦 Home Savings: Cached savings goal to Room for ${savingsGoal.month}/${savingsGoal.year}")
+                            val goalForUi = if (unsyncedTx && existing != null) {
+                                savingsGoal.copy(currentSaved = existing.currentSaved)
+                            } else {
+                                savingsGoal
+                            }
+                            _uiState.update { it.copy(savingsGoalState = ScreenState.Success(goalForUi)) }
+                            val pctUi =
+                                if (goalForUi.targetAmount > 1e-12) {
+                                    goalForUi.currentSaved / goalForUi.targetAmount * 100.0
+                                } else {
+                                    0.0
+                                }
+                            println(
+                                "SAVINGS_PROGRESS: Home loadSavingsData month=${goalForUi.year}-${goalForUi.month} " +
+                                    "saved=${goalForUi.currentSaved} target=${goalForUi.targetAmount} " +
+                                    "(${"%.1f".format(pctUi)}%)"
+                            )
                         } catch (e: Exception) {
                             println("❌ Home Savings: Failed to cache savings goal to Room: ${e.message}")
                             e.printStackTrace()
+                            _uiState.update { it.copy(savingsGoalState = ScreenState.Success(savingsGoal)) }
                         }
+                    } else {
+                        _uiState.update { it.copy(savingsGoalState = ScreenState.Success(null)) }
                     }
-                    _uiState.update { it.copy(savingsGoalState = ScreenState.Success(savingsGoal)) }
                 }
             } catch (e: Exception) {
                 println("DEBUG: HomeViewModel - Error loading savings: ${e.message}")
@@ -355,7 +416,17 @@ class HomeViewModel(
                         _uiState.update {
                             it.copy(savingsGoalState = ScreenState.Success(savingsGoal))
                         }
-                        println("📱 DEBUG: HomeViewModel - Loaded monthly savings goal: ${savingsGoal.month}/${savingsGoal.year}")
+                        val pct =
+                            if (savingsGoal.targetAmount > 1e-12) {
+                                savingsGoal.currentSaved / savingsGoal.targetAmount * 100.0
+                            } else {
+                                0.0
+                            }
+                        println(
+                            "SAVINGS_PROGRESS: Home from Room month=$currentYear-$currentMonth " +
+                                "saved=${savingsGoal.currentSaved} target=${savingsGoal.targetAmount} " +
+                                "(${"%.1f".format(pct)}%)"
+                        )
                     } else {
                         // Try to get most recent goal
                         val allGoals = monthlySavingsGoalDao.getMonthlySavingsGoals()
@@ -371,7 +442,17 @@ class HomeViewModel(
                             _uiState.update {
                                 it.copy(savingsGoalState = ScreenState.Success(savingsGoal))
                             }
-                            println("📱 DEBUG: HomeViewModel - Loaded most recent savings goal: ${savingsGoal.month}/${savingsGoal.year}")
+                            val pctMr =
+                                if (savingsGoal.targetAmount > 1e-12) {
+                                    savingsGoal.currentSaved / savingsGoal.targetAmount * 100.0
+                                } else {
+                                    0.0
+                                }
+                            println(
+                                "SAVINGS_PROGRESS: Home from Room (fallback most recent) month=${savingsGoal.year}-${savingsGoal.month} " +
+                                    "saved=${savingsGoal.currentSaved} target=${savingsGoal.targetAmount} " +
+                                    "(${"%.1f".format(pctMr)}%)"
+                            )
                         } else {
                             _uiState.update { it.copy(savingsGoalState = ScreenState.Empty) }
                             println("📱 DEBUG: HomeViewModel - No monthly savings goals found in Room")
@@ -500,6 +581,7 @@ data class HomeScreenState(
     val balanceState: ScreenState<TotalBalance?> = ScreenState.Loading,
     val financialOverviewState: ScreenState<FinancialOverviewData> = ScreenState.Loading,
     val recentTransactionsState: ScreenState<List<TransactionEntity>> = ScreenState.Loading,
+    val unsyncedTransactionIds: Set<Int> = emptySet(),
     val budgetState: ScreenState<Budget?> = ScreenState.Loading,
     val savingsGoalState: ScreenState<SavingsGoal?> = ScreenState.Loading,
     val syncStatus: SyncStatus = SyncStatus.IDLE

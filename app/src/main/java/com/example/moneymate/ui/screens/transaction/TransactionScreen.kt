@@ -41,7 +41,7 @@ import com.example.moneymate.ui.navigation.BottomNavigationBar
 import com.example.moneymate.ui.offline.OfflineSnackbarHost
 import com.example.moneymate.ui.offline.SyncStatus
 import com.example.moneymate.ui.offline.SyncStatusIndicator
-import com.example.moneymate.ui.offline.UnsyncedTransactionBadge
+import com.example.moneymate.ui.offline.PendingSyncIndicator
 import com.example.moneymate.ui.screens.transaction.component.SwipeableChartContainer
 import com.example.moneymate.ui.screens.transaction.component.TransactionListItem
 import com.example.moneymate.ui.screens.transaction.component.TransactionTopBar
@@ -231,17 +231,12 @@ fun TransactionScreen(
                             val transactions = (uiState.transactionsState as com.example.moneymate.utils.ScreenState.Success).data
                             if (transactions.isNotEmpty()) {
                                 items(transactions) { transaction ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        TransactionListItem(transaction = transaction)
-                                        UnsyncedTransactionBadge(
-                                            isSynced = !uiState.unsyncedTransactionIds.contains(transaction.id)
-                                        )
-                                    }
+                                    TransactionListItem(
+                                        transaction = transaction,
+                                        // Prefer Room truth: if it's in unsynced ids, show pending.
+                                        // Fallback: treat negative temp IDs as pending.
+                                        isSynced = !uiState.unsyncedTransactionIds.contains(transaction.id) && transaction.id >= 0
+                                    )
                                 }
                             }
                         }

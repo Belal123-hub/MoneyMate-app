@@ -16,6 +16,7 @@ class SyncWorker(
 
     override suspend fun doWork(): Result {
         return try {
+            println("⏱ SyncWorker: starting OfflineSyncOrchestrator.runSync(\"default\")")
             syncOrchestrator.runSync("default")
                 .fold(
                     onSuccess = { Result.success() },

@@ -4,6 +4,7 @@ import androidx.room.Room
 import com.example.data.database.MIGRATION_1_2
 import com.example.data.database.MIGRATION_2_3
 import com.example.data.database.MIGRATION_3_4
+import com.example.data.database.MIGRATION_4_5
 import com.example.data.database.MoneyMateDatabase
 import com.example.data.network.common.Network
 import com.example.data.network.category.CategoryRepositoryImpl
@@ -12,7 +13,9 @@ import com.example.data.network.tag.TagRepositoryImpl
 import com.example.data.network.sync.OfflineSyncApi
 import com.example.data.network.transaction.TransactionRepositoryImpl
 import com.example.data.network.wallet.WalletRepositoryImpl
+import com.example.data.offline.MonthlySavingsLocalRecalculator
 import com.example.data.offline.OfflineSyncOrchestrator
+import com.example.data.offline.WalletBalanceRecalculator
 import com.example.data.offline.OfflineSyncStatusDataSource
 import com.example.data.offline.repository.OfflineCategoryRepositoryImpl
 import com.example.data.offline.repository.OfflineGoalRepositoryImpl
@@ -39,6 +42,7 @@ val offlineModule = module {
             .addMigrations(MIGRATION_1_2)
             .addMigrations(MIGRATION_2_3)
             .addMigrations(MIGRATION_3_4)
+            .addMigrations(MIGRATION_4_5)
             .build()
     }
 
@@ -54,25 +58,36 @@ val offlineModule = module {
 
     single<OfflineSyncApi> { Network.getApi(get()) }
 
+    single { WalletBalanceRecalculator(get(), get()) }
+    single { MonthlySavingsLocalRecalculator(get(), get()) }
+
     single {
         OfflineSyncOrchestrator(
             syncApi = get(),
+            walletApi = get(),
+            goalApi = get(),
             transactionDao = get(),
             walletDao = get(),
             categoryDao = get(),
             goalDao = get(),
             tagDao = get(),
             syncMetadataDao = get(),
-            pendingOperationDao = get()
+            pendingOperationDao = get(),
+            monthlySavingsGoalDao = get(),
+            monthlySavingsLocalRecalculator = get(),
+            walletBalanceRecalculator = get()
         )
     }
-    single { OfflineSyncStatusDataSource(get()) }
+    single { OfflineSyncStatusDataSource(get(), get()) }
 
     single<WalletRepository> {
         OfflineWalletRepositoryImpl(
             remoteRepository = get<WalletRepositoryImpl>(),
             walletDao = get(),
-            syncOrchestrator = get()
+            transactionDao = get(),
+            syncOrchestrator = get(),
+            walletBalanceRecalculator = get(),
+            pendingOperationDao = get()
         )
     }
     single<TransactionRepository> {
@@ -80,7 +95,11 @@ val offlineModule = module {
             remoteRepository = get<TransactionRepositoryImpl>(),
             transactionDao = get(),
             syncOrchestrator = get(),
-            pendingOperationDao = get()
+            pendingOperationDao = get(),
+            monthlySavingsLocalRecalculator = get(),
+            savingsGoalRepository = get(),
+            monthlySavingsGoalDao = get(),
+            walletBalanceRecalculator = get()
         )
     }
     single<CategoryRepository> {
@@ -94,6 +113,7 @@ val offlineModule = module {
         OfflineGoalRepositoryImpl(
             remoteRepository = get<GoalRepositoryImpl>(),
             goalDao = get(),
+            pendingOperationDao = get(),
             syncOrchestrator = get()
         )
     }

@@ -87,6 +87,14 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
     }
 }
 
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL(
+            "ALTER TABLE monthly_savings_goals ADD COLUMN savings_tx_net_anchor REAL DEFAULT NULL"
+        )
+    }
+}
+
 @Database(
     entities = [
         TransactionEntity::class,
@@ -99,7 +107,7 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         TagEntity::class,
         BudgetEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 @TypeConverters(DatabaseConverters::class)

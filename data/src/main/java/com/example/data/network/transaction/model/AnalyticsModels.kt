@@ -3,7 +3,9 @@ package com.example.data.network.transaction.model
 
 import com.example.domain.transaction.model.AverageSpendingData
 import com.example.domain.transaction.model.TopCategoryData
+import com.example.data.network.common.serializer.FlexibleDoubleSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 
 // KEEP EXISTING MODELS
 @Serializable
@@ -44,8 +46,11 @@ data class AnalysisPeriod(
 data class CategorySummaryResponse(
     val expenses: List<CategoryResponse>,
     val incomes: List<CategoryResponse>,
+    @Serializable(with = FlexibleDoubleSerializer::class)
     val total_expenses: Double,
+    @Serializable(with = FlexibleDoubleSerializer::class)
     val total_incomes: Double,
+    @Serializable(with = FlexibleDoubleSerializer::class)
     val net_flow: Double
 )
 
@@ -54,6 +59,7 @@ data class CategoryResponse(
     val category_id: Int,
     val category_name: String,
     val category_type: String,
+    @Serializable(with = FlexibleDoubleSerializer::class)
     val total_amount: Double,
     val transaction_count: Int
 )

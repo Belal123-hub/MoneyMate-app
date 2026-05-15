@@ -22,10 +22,22 @@ val viewModelModule  = module {
     viewModel{ HomeViewModel(get(), get(),
         get(), get(), get(),
         get(), get(), get(),
-        get(), get()) }
-    viewModel{ WalletViewModel(get(), get(),
-        get(), get(),get(),
-        get(), get()) }
+        get(), get(),
+        get(),
+        get()) }
+    viewModel {
+        WalletViewModel(
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+        )
+    }
     viewModel{ AddTransactionViewModel(get(), get(),
         get(), get() ,
         get(),
@@ -51,6 +63,8 @@ val viewModelModule  = module {
         get(), get(),
         get(), get(), get(),
         get(), get(), get(),
+        get(),
+        get(),
         get(),
         get()) }
     viewModel { GoalDetailViewModel(get(), get(),

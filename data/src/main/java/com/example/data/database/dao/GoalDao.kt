@@ -28,4 +28,7 @@ interface GoalDao {
 
     @Query("UPDATE goals SET is_synced = 1, updated_at = :updatedAt WHERE id IN (:ids)")
     suspend fun markGoalsSynced(ids: List<Int>, updatedAt: Long)
+
+    @Query("UPDATE goals SET wallet_id = :newId WHERE wallet_id = :oldId")
+    suspend fun reassignWalletId(oldId: Int, newId: Int)
 }

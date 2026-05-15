@@ -2,11 +2,16 @@ package com.example.data.offline.repository
 
 import android.os.Build
 import androidx.annotation.RequiresApi
+import com.example.data.database.dao.MonthlySavingsGoalDao
 import com.example.data.database.dao.PendingOperationDao
 import com.example.data.database.dao.TransactionDao
+import com.example.data.database.entity.MonthlySavingsGoalEntity
 import com.example.data.database.mapper.toDomain
 import com.example.data.database.mapper.toLocalEntity
+import com.example.data.offline.MonthlySavingsLocalRecalculator
 import com.example.data.offline.OfflineSyncOrchestrator
+import com.example.data.offline.WalletBalanceRecalculator
+import com.example.domain.savingsGoal.SavingsGoalRepository
 import com.example.domain.transaction.TransactionRepository
 import com.example.domain.transaction.model.AverageSpendingData
 import com.example.domain.transaction.model.CategorySummaryData
@@ -31,7 +36,11 @@ class OfflineTransactionRepositoryImpl(
     private val remoteRepository: TransactionRepository,
     private val transactionDao: TransactionDao,
     private val syncOrchestrator: OfflineSyncOrchestrator,
-    private val pendingOperationDao: PendingOperationDao
+    private val pendingOperationDao: PendingOperationDao,
+    private val monthlySavingsLocalRecalculator: MonthlySavingsLocalRecalculator,
+    private val savingsGoalRepository: SavingsGoalRepository,
+    private val monthlySavingsGoalDao: MonthlySavingsGoalDao,
+    private val walletBalanceRecalculator: WalletBalanceRecalculator
 ) : TransactionRepository {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -41,6 +50,9 @@ class OfflineTransactionRepositoryImpl(
         if (remote.isSuccess) {
             val created = remote.getOrThrow()
             transactionDao.upsertTransaction(created.toLocalEntity(System.currentTimeMillis(), true))
+            walletBalanceRecalculator.recalculateWalletBalance(created.walletId)
+            refreshMonthlySavingsFromServerAfterRemoteTransaction()
+            monthlySavingsLocalRecalculator.recalculateAllCachedMonths()
             return remote
         }
 
@@ -59,6 +71,8 @@ class OfflineTransactionRepositoryImpl(
             receiptUrl = null
         )
         transactionDao.upsertTransaction(localTransaction.toLocalEntity(System.currentTimeMillis(), false))
+        monthlySavingsLocalRecalculator.recalculateAllCachedMonths()
+        walletBalanceRecalculator.recalculateWalletBalance(localTransaction.walletId)
         val payload = buildCreateTransactionPayload(createTransaction)
 
         // Debug: Check pending operations count before enqueue
@@ -103,13 +117,19 @@ class OfflineTransactionRepositoryImpl(
     }
 
     override suspend fun deleteTransaction(id: Int): Result<Unit> {
+        val existing = transactionDao.getTransactionByTempId(id)
         val remote = remoteRepository.deleteTransaction(id)
         if (remote.isSuccess) {
             transactionDao.deleteTransactionById(id)
+            existing?.walletId?.let { walletBalanceRecalculator.recalculateWalletBalance(it) }
+            refreshMonthlySavingsFromServerAfterRemoteTransaction()
+            monthlySavingsLocalRecalculator.recalculateAllCachedMonths()
             return remote
         }
         transactionDao.deleteTransactionById(id)
         syncOrchestrator.enqueueOperation("transaction", id, "delete")
+        existing?.walletId?.let { walletBalanceRecalculator.recalculateWalletBalance(it) }
+        monthlySavingsLocalRecalculator.recalculateAllCachedMonths()
         return Result.success(Unit)
     }
 
@@ -134,6 +154,53 @@ class OfflineTransactionRepositoryImpl(
     override suspend fun getSavingsForecast(monthsAhead: Int): Result<SavingsForecastData> = remoteRepository.getSavingsForecast(monthsAhead)
     override suspend fun getSpendingForecast(): Result<SpendingForecastData> = remoteRepository.getSpendingForecast()
     override suspend fun getSavingsSuggestions(): Result<SavingsSuggestionData> = remoteRepository.getSavingsSuggestions()
+
+    /**
+     * After a successful **REST** transaction mutation, align Room with `GET /api/savings_goals/current`.
+     * REST may use incremental savings updates while sync uses full recompute; the GET is authoritative here.
+     *
+     * @return true if Room monthly goal was updated from the API
+     */
+    private suspend fun refreshMonthlySavingsFromServerAfterRemoteTransaction(): Boolean {
+        return try {
+            val result = savingsGoalRepository.getCurrentSavingsGoal()
+            if (result.isFailure) return false
+            val sg = result.getOrNull() ?: return false
+            val txNet = runCatching {
+                transactionDao.sumSavingsWalletIncomeMinusExpenseForMonth(sg.year, sg.month)
+            }.getOrElse { 0.0 }
+            val currentSavedForRoom =
+                if (sg.currentSaved <= 1e-9 && txNet > 1e-9) {
+                    println(
+                        "SAVINGS_REST: API current_saved=${sg.currentSaved} but local savings-wallet txNet=$txNet — using txNet"
+                    )
+                    txNet
+                } else {
+                    sg.currentSaved
+                }
+            val now = System.currentTimeMillis()
+            monthlySavingsGoalDao.upsertMonthlySavingsGoal(
+                MonthlySavingsGoalEntity(
+                    id = sg.id,
+                    month = sg.month,
+                    year = sg.year,
+                    targetAmount = sg.targetAmount,
+                    currentSaved = currentSavedForRoom,
+                    savingsTxNetAnchor = txNet,
+                    updatedAt = now,
+                    isSynced = true
+                )
+            )
+            println(
+                "SAVINGS_REST: Cached GET savings_goals/current after remote tx " +
+                    "(id=${sg.id}, month=${sg.month}, year=${sg.year}, current_saved=$currentSavedForRoom, anchorTxNet=$txNet)"
+            )
+            true
+        } catch (e: Exception) {
+            println("SAVINGS_REST: Failed to refresh savings after remote tx: ${e.message}")
+            false
+        }
+    }
 
     private fun buildCreateTransactionPayload(createTransaction: CreateTransaction): String {
         val amountString = when (val amount = createTransaction.amount) {

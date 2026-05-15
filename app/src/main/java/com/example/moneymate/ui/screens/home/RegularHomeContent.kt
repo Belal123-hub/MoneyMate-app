@@ -36,6 +36,7 @@ fun RegularHomeContent(
     recentTransactions: List<TransactionEntity>? = null,
     budgetData: Budget? = null,
     savingsGoal: SavingsGoal? = null,
+    unsyncedTransactionIds: Set<Int> = emptySet(),
     currencySymbol: String = "$",
     onSeeAllBudget: () -> Unit,
     onSeeAllTransactions: () -> Unit,
@@ -65,6 +66,7 @@ fun RegularHomeContent(
         TransactionsSection(
             transactions = recentTransactions ?: emptyList(),
             currencySymbol = currencySymbol,
+            unsyncedTransactionIds = unsyncedTransactionIds,
             modifier = Modifier.fillMaxWidth(),
             onSeeAll = onSeeAllTransactions,
             isInLazyColumn = isInLazyColumn

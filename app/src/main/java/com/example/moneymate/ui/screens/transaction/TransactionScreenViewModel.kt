@@ -12,6 +12,7 @@ import com.example.domain.transaction.model.MonthlyComparisonData
 import com.example.domain.transaction.model.PeriodFilter
 import com.example.domain.transaction.model.TransactionChartsData
 import com.example.domain.transaction.model.TransactionEntity
+import com.example.domain.transaction.model.CategoryData
 import com.example.domain.transaction.usecase.GetAverageSpendingUseCase
 import com.example.domain.transaction.usecase.GetCategorySummaryUseCase
 import com.example.domain.transaction.usecase.GetMonthlyChartDataUseCase
@@ -163,7 +164,11 @@ class TransactionScreenViewModel(
                 val categorySummaryDeferred = async { 
                     println("  ⏳ Loading category summary...")
                     println("  📊 DEBUG: getCategorySummaryUseCase instance: ${getCategorySummaryUseCase != null}")
-                    val result = getCategorySummaryUseCase.execute()
+                    println("  📊 DEBUG: Category summary dateRange=${defaultDateRange.startDate}..${defaultDateRange.endDate}")
+                    val result = getCategorySummaryUseCase.execute(
+                        startDate = defaultDateRange.startDate,
+                        endDate = defaultDateRange.endDate
+                    )
                     println("  📊 DEBUG: Category summary result: ${result.expenses.size} expenses")
                     result
                 }
@@ -215,7 +220,33 @@ class TransactionScreenViewModel(
                         dateRange = defaultDateRange,
                         selectedFilter = ChartFilter.EXPENSES
                     ),
-                    categorySummary = categorySummary,
+                    categorySummary = categorySummary.takeIf { it.expenses.isNotEmpty() && it.totalExpenses > 0.0 }
+                        ?: run {
+                            // Fallback: if backend category-summary is empty, derive pie data from top categories
+                            // (still useful for the "Expense Distribution" pie chart).
+                            if (topCategories.isNotEmpty()) {
+                                val expenses = topCategories.map {
+                                    CategoryData(
+                                        categoryId = it.categoryId,
+                                        categoryName = it.categoryName,
+                                        categoryType = "expense",
+                                        totalAmount = it.totalAmount,
+                                        transactionCount = 0
+                                    )
+                                }
+                                val total = expenses.sumOf { it.totalAmount }
+                                println("  ⚠️ Category summary empty; using topCategories fallback: ${expenses.size} categories, total=$total")
+                                CategorySummaryData(
+                                    expenses = expenses,
+                                    incomes = emptyList(),
+                                    totalExpenses = total,
+                                    totalIncomes = 0.0,
+                                    netFlow = -total
+                                )
+                            } else {
+                                categorySummary
+                            }
+                        },
                     monthlyComparison = monthlyComparison,
                     topCategories = topCategories,
                     averageSpending = averageSpending,
@@ -752,15 +783,16 @@ class TransactionScreenViewModel(
 
     // Helper functions for date calculations
     private fun getDefaultStartDate(): String {
+        // Default to current month (matches backend expectations & Swagger usage)
         val calendar = java.util.Calendar.getInstance()
-        calendar.add(java.util.Calendar.DAY_OF_YEAR, -30) // Default to 30 days ago
-        val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+        calendar.set(java.util.Calendar.DAY_OF_MONTH, 1)
+        val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
         return dateFormat.format(calendar.time)
     }
 
     private fun getDefaultEndDate(): String {
         val calendar = java.util.Calendar.getInstance()
-        val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+        val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
         return dateFormat.format(calendar.time)
     }
 
@@ -839,13 +871,13 @@ data class TransactionScreenState(
 // Helper functions for default dates
 private fun getDefaultStartDate(): String {
     val calendar = java.util.Calendar.getInstance()
-    calendar.add(java.util.Calendar.DAY_OF_YEAR, -30)
-    val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+    calendar.set(java.util.Calendar.DAY_OF_MONTH, 1)
+    val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
     return dateFormat.format(calendar.time)
 }
 
 private fun getDefaultEndDate(): String {
     val calendar = java.util.Calendar.getInstance()
-    val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+    val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
     return dateFormat.format(calendar.time)
 }

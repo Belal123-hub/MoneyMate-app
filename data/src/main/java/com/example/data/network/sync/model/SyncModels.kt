@@ -2,6 +2,7 @@ package com.example.data.network.sync.model
 
 import com.example.data.network.category.model.CategoryResponse
 import com.example.data.network.goal.model.GoalResponse
+import com.example.data.network.savingsGoal.model.SavingsGoalResponse
 import com.example.data.network.tag.model.TagDto
 import com.example.data.network.transaction.model.TransactionDto
 import com.example.data.network.wallet.model.WalletResponse
@@ -39,7 +40,13 @@ data class SyncPushResponse(
     val wallets: List<WalletResponse>,
     val goals: List<GoalResponse>,
     val categories: List<CategoryResponse>,
-    val tags: List<TagDto> = emptyList()
+    val tags: List<TagDto> = emptyList(),
+    /**
+     * When present, authoritative monthly savings goal after push (e.g. server recalculated from transactions).
+     * JSON key must match backend contract (default `current_savings_goal`).
+     */
+    @SerialName("current_savings_goal")
+    val currentSavingsGoal: SavingsGoalResponse? = null
 )
 @Serializable
 data class SyncOperationResult(
@@ -50,5 +57,11 @@ data class SyncOperationResult(
     @SerialName("resource_id")
     val resourceId: Int,
     val status: String,
-    val message: String? = null
+    val message: String? = null,
+    /**
+     * Optional server-assigned id for creates when [resourceId] still holds the client temp id,
+     * or when the API uses a separate field for the persisted id.
+     */
+    @SerialName("server_resource_id")
+    val serverResourceId: Int? = null
 )

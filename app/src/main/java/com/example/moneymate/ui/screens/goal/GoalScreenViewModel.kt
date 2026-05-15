@@ -2,8 +2,10 @@ package com.example.moneymate.ui.screens.goal
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.database.dao.GoalDao
 import com.example.data.database.dao.BudgetDao
 import com.example.data.database.dao.MonthlySavingsGoalDao
+import com.example.data.offline.MonthlySavingsLocalRecalculator
 import com.example.data.database.dao.TransactionDao
 import com.example.data.database.dao.WalletDao
 import com.example.data.database.entity.BudgetEntity
@@ -60,7 +62,9 @@ class GoalScreenViewModel(
     private val connectivityObserver: ConnectivityObserver,
     private val transactionDao: TransactionDao,
     private val walletDao: WalletDao,
+    private val goalDao: GoalDao,
     private val monthlySavingsGoalDao: MonthlySavingsGoalDao,
+    private val monthlySavingsLocalRecalculator: MonthlySavingsLocalRecalculator,
     private val budgetDao: BudgetDao
 ) : ViewModel() {
 
@@ -101,6 +105,7 @@ class GoalScreenViewModel(
                         val updated = result.getOrThrow()
                         upsertSavingsGoalLocally(updated, isSynced = true)
                         monthlySavingsGoalDao.markGoalsSynced(listOf(local.id), System.currentTimeMillis())
+                        monthlySavingsLocalRecalculator.recalculateAllCachedMonths()
                         println("✅ GOALS: Synced savings goal target=$target (month=${local.month}, year=${local.year})")
                     } else {
                         println("⚠️ GOALS: Failed to sync savings goal target=$target: ${result.exceptionOrNull()?.message}")
@@ -252,10 +257,16 @@ class GoalScreenViewModel(
                 val result = getGoalsUseCase()
                 if (result.isSuccess) {
                     val goals = result.getOrThrow()
+                    val unsyncedIds = try {
+                        goalDao.getUnsyncedGoals().map { it.id }.toSet()
+                    } catch (_: Exception) {
+                        emptySet()
+                    }
                     _uiState.update {
                         it.copy(
                             goalsState = if (goals.isEmpty()) ScreenState.Empty else ScreenState.Success(goals),
-                            goals = goals
+                            goals = goals,
+                            unsyncedGoalIds = unsyncedIds
                         )
                     }
                 } else {
@@ -568,9 +579,23 @@ class GoalScreenViewModel(
                 val result = getCurrentSavingsGoalUseCase()
                 if (result.isSuccess) {
                     val goal = result.getOrThrow()
+                    val roomGoal =
+                        monthlySavingsGoalDao.getMonthlySavingsGoalByMonth(goal.year, goal.month)
+                    val mergedGoal =
+                        if (roomGoal != null) {
+                            val mergedSaved = maxOf(goal.currentSaved, roomGoal.currentSaved)
+                            if (mergedSaved > goal.currentSaved + 1e-6) {
+                                println(
+                                    "📦 GOALS: Savings progress using max(API=${goal.currentSaved}, Room=${roomGoal.currentSaved})=$mergedSaved"
+                                )
+                            }
+                            goal.copy(currentSaved = mergedSaved)
+                        } else {
+                            goal
+                        }
                     _uiState.update {
                         it.copy(
-                            savingsGoal = goal,
+                            savingsGoal = mergedGoal,
                             isSavingsGoalLoading = false
                         )
                     }
@@ -591,7 +616,9 @@ class GoalScreenViewModel(
                 if (result.isSuccess) {
                     val updatedGoal = result.getOrThrow()
                     upsertSavingsGoalLocally(updatedGoal, isSynced = true)
-                    _uiState.update { it.copy(savingsGoal = updatedGoal, isSavingsGoalUpdating = false) }
+                    monthlySavingsLocalRecalculator.recalculateAllCachedMonths()
+                    applyRoomSavingsToUi()
+                    _uiState.update { it.copy(isSavingsGoalUpdating = false) }
                 } else {
                     saveSavingsGoalOffline(targetAmount)
                 }
@@ -836,16 +863,44 @@ class GoalScreenViewModel(
         )
 
         upsertSavingsGoalLocally(localGoal, isSynced = false)
+        monthlySavingsLocalRecalculator.recalculateAllCachedMonths()
+        applyRoomSavingsToUi()
         _uiState.update {
             it.copy(
-                savingsGoal = localGoal,
                 isSavingsGoalUpdating = false,
                 savingsGoalError = null
             )
         }
     }
 
+    private suspend fun applyRoomSavingsToUi() {
+        val now = LocalDate.now()
+        val row = monthlySavingsGoalDao.getMonthlySavingsGoalByMonth(now.year, now.monthValue) ?: return
+        val pct = if (row.targetAmount > 1e-12) row.currentSaved / row.targetAmount * 100.0 else 0.0
+        println(
+            "SAVINGS_PROGRESS: GoalScreen UI month=${row.year}-${row.month} saved=${row.currentSaved} " +
+                "target=${row.targetAmount} (${"%.1f".format(pct)}%)"
+        )
+        _uiState.update {
+            it.copy(
+                savingsGoal = SavingsGoal(
+                    id = row.id,
+                    month = row.month,
+                    year = row.year,
+                    targetAmount = row.targetAmount,
+                    currentSaved = row.currentSaved
+                )
+            )
+        }
+    }
+
     private suspend fun upsertSavingsGoalLocally(goal: SavingsGoal, isSynced: Boolean) {
+        val existing = monthlySavingsGoalDao.getMonthlySavingsGoalByMonth(goal.year, goal.month)
+        val anchorToStore = if (isSynced) {
+            null
+        } else {
+            existing?.savingsTxNetAnchor
+        }
         monthlySavingsGoalDao.upsertMonthlySavingsGoal(
             MonthlySavingsGoalEntity(
                 id = goal.id,
@@ -853,6 +908,7 @@ class GoalScreenViewModel(
                 year = goal.year,
                 targetAmount = goal.targetAmount,
                 currentSaved = goal.currentSaved,
+                savingsTxNetAnchor = anchorToStore,
                 updatedAt = System.currentTimeMillis(),
                 isSynced = isSynced
             )
@@ -940,5 +996,6 @@ data class GoalScreenState(
     // Goals
     val goalsState: ScreenState<List<Goal>> = ScreenState.Loading,
     val goals: List<Goal> = emptyList(),
+    val unsyncedGoalIds: Set<Int> = emptySet(),
     val syncStatus: SyncStatus = SyncStatus.IDLE
 )

@@ -42,10 +42,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.domain.transaction.model.TransactionEntity
 import com.example.moneymate.R
+import com.example.moneymate.ui.offline.PendingSyncIndicator
 
 @Composable
 private fun TransactionItem(
     transaction: TransactionEntity,
+    isSynced: Boolean,
     currencySymbol: String = "$",
     modifier: Modifier = Modifier
 ) {
@@ -99,15 +101,20 @@ private fun TransactionItem(
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            Text(
-                text = if (transaction.type == "income")
-                    "+$currencySymbol${transaction.amount}"
-                else
-                    "-$currencySymbol${transaction.amount}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (transaction.type == "income") Color(0xFF10B981) else Color(0xFFEF4444),
-                fontWeight = FontWeight.Bold
-            )
+            // Show a subtle pending icon instead of amount when unsynced (WhatsApp-like).
+            if (!isSynced) {
+                PendingSyncIndicator(isSynced = false)
+            } else {
+                Text(
+                    text = if (transaction.type == "income")
+                        "+$currencySymbol${transaction.amount}"
+                    else
+                        "-$currencySymbol${transaction.amount}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (transaction.type == "income") Color(0xFF10B981) else Color(0xFFEF4444),
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
     }
 }
@@ -117,6 +124,7 @@ fun TransactionsSection(
     transactions: List<TransactionEntity>,
     currencySymbol: String = "$",
     availableTags: List<String> = emptyList(),
+    unsyncedTransactionIds: Set<Int> = emptySet(),
     onSeeAll: () -> Unit = {},
     modifier: Modifier = Modifier,
     isInLazyColumn: Boolean = false // NEW PARAMETER
@@ -234,6 +242,7 @@ fun TransactionsSection(
                     filteredTransactions.forEach { transaction ->
                         TransactionItem(
                             transaction = transaction,
+                            isSynced = !unsyncedTransactionIds.contains(transaction.id),
                             currencySymbol = currencySymbol,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -247,6 +256,7 @@ fun TransactionsSection(
                     items(filteredTransactions) { transaction ->
                         TransactionItem(
                             transaction = transaction,
+                            isSynced = !unsyncedTransactionIds.contains(transaction.id),
                             currencySymbol = currencySymbol
                         )
                     }

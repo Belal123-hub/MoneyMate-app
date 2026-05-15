@@ -279,6 +279,7 @@ fun GoalScreen(
                         item {
                             GoalsListSection(
                                 goalsState = uiState.goalsState,
+                                unsyncedGoalIds = uiState.unsyncedGoalIds,
                                 onGoalClick = { goal ->
                                     navController?.navigate("goalDetail/${goal.id}")
                                 },

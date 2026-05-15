@@ -196,6 +196,7 @@ fun HomeScreen(
                                             recentTransactions = uiState.recentTransactions,
                                             budgetData = uiState.budgetData,
                                             savingsGoal = uiState.savingsGoal,
+                                            unsyncedTransactionIds = uiState.unsyncedTransactionIds,
                                             currencySymbol = currencySymbol,
                                             onSeeAllBudget = onSeeAllBudget,
                                             onSeeAllTransactions = onSeeAllTransactions,

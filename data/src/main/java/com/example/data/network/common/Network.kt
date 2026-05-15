@@ -21,7 +21,8 @@ import javax.net.ssl.X509TrustManager
 
 @Suppress("MagicNumber", "LongParameterList")
 object Network {
-    private const val BASE_URL = "https://10.0.2.2:7148"  // Changed to HTTPS
+    // 172.18.111.10
+    private const val BASE_URL = "http://10.0.2.2:5143/"
 
     private const val CONTENT_TYPE = "application/json"
 

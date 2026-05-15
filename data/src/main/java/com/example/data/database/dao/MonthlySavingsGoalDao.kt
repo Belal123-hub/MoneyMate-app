@@ -25,4 +25,39 @@ interface MonthlySavingsGoalDao {
 
     @Query("UPDATE monthly_savings_goals SET is_synced = 1, updated_at = :updatedAt WHERE id IN (:ids)")
     suspend fun markGoalsSynced(ids: List<Int>, updatedAt: Long)
+
+    @Query(
+        """
+        UPDATE monthly_savings_goals
+        SET current_saved = :currentSaved, updated_at = :updatedAt
+        WHERE year = :year AND month = :month
+        """
+    )
+    suspend fun updateCurrentSavedForMonth(year: Int, month: Int, currentSaved: Double, updatedAt: Long): Int
+
+    @Query(
+        """
+        UPDATE monthly_savings_goals
+        SET savings_tx_net_anchor = :anchor, updated_at = :updatedAt
+        WHERE year = :year AND month = :month
+        """
+    )
+    suspend fun updateSavingsTxNetAnchorOnly(year: Int, month: Int, anchor: Double, updatedAt: Long): Int
+
+    @Query(
+        """
+        UPDATE monthly_savings_goals
+        SET current_saved = :currentSaved,
+            savings_tx_net_anchor = :anchor,
+            updated_at = :updatedAt
+        WHERE year = :year AND month = :month
+        """
+    )
+    suspend fun updateCurrentSavedAndSavingsTxNetAnchor(
+        year: Int,
+        month: Int,
+        currentSaved: Double,
+        anchor: Double,
+        updatedAt: Long
+    ): Int
 }

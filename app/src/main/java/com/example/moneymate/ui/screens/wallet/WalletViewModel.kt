@@ -1,7 +1,10 @@
 package com.example.moneymate.ui.screens.wallet
 
+import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.offline.OfflineSyncOrchestrator
+import com.example.data.offline.OfflineSyncStatusDataSource
 import com.example.domain.transaction.model.TransactionEntity
 import com.example.domain.transaction.usecase.GetWalletTransactionsUseCase
 import com.example.domain.wallet.model.Wallet
@@ -28,7 +31,9 @@ class WalletViewModel(
     private val deleteWalletUseCase: DeleteWalletUseCase,
     private val updateWalletUseCase: UpdateWalletUseCase,
     private val getWalletTransactionsUseCase: GetWalletTransactionsUseCase,
-    private val connectivityObserver: ConnectivityObserver
+    private val offlineSyncStatusDataSource: OfflineSyncStatusDataSource,
+    private val connectivityObserver: ConnectivityObserver,
+    private val offlineSyncOrchestrator: OfflineSyncOrchestrator
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(WalletScreenState())
@@ -38,9 +43,27 @@ class WalletViewModel(
         println("DEBUG: WalletViewModel init - loading wallets")
         loadWallets()
         observeConnectivity()
+        observeUnsyncedTransactions()
+        observeUnsyncedWallets()
 
         // Listen for data change events
         setupDataChangeListener()
+    }
+
+    private fun observeUnsyncedTransactions() {
+        viewModelScope.launch {
+            offlineSyncStatusDataSource.observeUnsyncedTransactionIds().collect { ids ->
+                _uiState.value = _uiState.value.copy(unsyncedTransactionIds = ids)
+            }
+        }
+    }
+
+    private fun observeUnsyncedWallets() {
+        viewModelScope.launch {
+            offlineSyncStatusDataSource.observeUnsyncedWalletIds().collect { ids ->
+                _uiState.value = _uiState.value.copy(unsyncedWalletIds = ids)
+            }
+        }
     }
 
     private fun observeConnectivity() {
@@ -49,6 +72,12 @@ class WalletViewModel(
                 _uiState.value = _uiState.value.copy(
                     syncStatus = if (isOnline) SyncStatus.IDLE else SyncStatus.OFFLINE
                 )
+                if (isOnline) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        runCatching { offlineSyncOrchestrator.runSync("wallets") }
+                    }
+                    loadWallets()
+                }
             }
         }
     }
@@ -59,8 +88,8 @@ class WalletViewModel(
             DataSyncManager.dataChangeEvents.collect { event ->
                 when (event) {
                     is DataSyncManager.DataChangeEvent.TransactionsUpdated -> {
-                        println("🔄 DEBUG: WalletViewModel - Transaction update detected, refreshing transactions...")
-                        // Refresh transactions for currently selected wallet
+                        println("🔄 DEBUG: WalletViewModel - Transaction update detected, refreshing wallets and transactions...")
+                        loadWallets()
                         uiState.value.selectedWallet?.id?.let { walletId ->
                             loadTransactions(walletId)
                         }
@@ -98,6 +127,7 @@ class WalletViewModel(
 
     fun loadWallets() {
         viewModelScope.launch {
+            val previousSelectedId = _uiState.value.selectedWallet?.id
             _uiState.value = _uiState.value.copy(walletsState = ScreenState.Loading)
 
             try {
@@ -110,10 +140,10 @@ class WalletViewModel(
                     )
                     println("DEBUG: Loaded ${walletsList.size} wallets")
 
-                    // Auto-select first wallet and load its transactions
-                    walletsList.firstOrNull()?.let { wallet ->
-                        selectWallet(wallet)
-                    }
+                    val walletToSelect = previousSelectedId?.let { id ->
+                        walletsList.find { it.id == id }
+                    } ?: walletsList.firstOrNull()
+                    walletToSelect?.let { selectWallet(it) }
                 } else {
                     val exception = result.exceptionOrNull() ?: Exception("Failed to load wallets")
                     _uiState.value = _uiState.value.copy(
@@ -368,6 +398,8 @@ data class WalletScreenState(
     // UI states
     val selectedWallet: Wallet? = null,
     val showDeleteDialog: Boolean = false,
+    val unsyncedTransactionIds: Set<Int> = emptySet(),
+    val unsyncedWalletIds: Set<Int> = emptySet(),
     val syncStatus: SyncStatus = SyncStatus.IDLE
 ) {
     // Helper properties for backward compatibility

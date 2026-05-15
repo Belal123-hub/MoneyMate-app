@@ -44,16 +44,16 @@ class GetCategorySummaryUseCase(
     }
 
     private fun getDefaultStartDate(): String {
-        // Using Calendar instead of LocalDate
+        // Default to current month to match Transaction screen expectations
         val calendar = Calendar.getInstance()
-        calendar.add(Calendar.DAY_OF_YEAR, -30) // 30 days ago
-        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        calendar.set(Calendar.DAY_OF_MONTH, 1)
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         return dateFormat.format(calendar.time)
     }
 
     private fun getDefaultEndDate(): String {
         val calendar = Calendar.getInstance()
-        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         return dateFormat.format(calendar.time)
     }
 }

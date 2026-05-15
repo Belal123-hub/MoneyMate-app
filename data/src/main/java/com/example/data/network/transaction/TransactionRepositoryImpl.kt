@@ -185,7 +185,8 @@ class TransactionRepositoryImpl(
                 Result.failure(Exception("Failed to fetch category summary"))
             }
         } catch (e: Exception) {
-            println("❌ DEBUG: Category summary exception - ${e.message}")
+            println("❌ DEBUG: Category summary exception - ${e::class.java.simpleName}: ${e.message}")
+            e.printStackTrace()
             Result.failure(e)
         }
     }
