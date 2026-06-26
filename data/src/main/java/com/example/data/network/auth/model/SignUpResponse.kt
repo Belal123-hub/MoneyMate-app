@@ -6,10 +6,10 @@ import kotlinx.serialization.Serializable
 data class SignUpResponse(
     val id: Int,
     val email: String,
-    val full_name: String?,
-    val phone_number: String?,
-    val date_of_birth: String?,
-    val avatar_url: String?,
+    val full_name: String? = null,
+    val phone_number: String? = null,
+    val date_of_birth: String? = null,
+    val avatar_url: String? = null,
     val default_currency: String,
     val is_active: Boolean,
     val created_at: String

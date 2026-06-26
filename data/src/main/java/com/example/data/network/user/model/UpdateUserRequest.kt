@@ -11,5 +11,6 @@ data class UpdateUserRequest(
     @SerialName("phone_number") val phoneNumber: String? = null,
     @SerialName("date_of_birth") val dateOfBirth: String? = null,
     @SerialName("default_currency") val defaultCurrency: String? = null,
-    @SerialName("password") val password: String? = null
+    @SerialName("password") val password: String? = null,
+    @SerialName("avatar_url") val avatarUrl: String? = null
 )

@@ -2,9 +2,13 @@ package com.example.data.network.transaction
 import com.example.data.network.transaction.model.AverageSpendingResponse
 import com.example.data.network.transaction.model.CategorySummaryResponse
 import com.example.data.network.transaction.model.MonthlyComparisonResponse
+import com.example.data.network.transaction.model.SavingsForecastResponse
+import com.example.data.network.transaction.model.SavingsSuggestionsResponse
 import com.example.data.network.transaction.model.SavingsTrendsResponse
+import com.example.data.network.transaction.model.SpendingForecastResponse
 import com.example.data.network.transaction.model.SpendingTrendsResponse
 import com.example.data.network.transaction.model.TopCategoryResponse
+import com.example.data.network.transaction.model.TransactionCreateRequest
 import com.example.data.network.transaction.model.TransactionDto
 import com.example.data.network.transaction.model.TransferCreateRequest
 import com.example.data.network.transaction.model.TransferDto
@@ -23,19 +27,13 @@ import retrofit2.http.Query
 
 interface TransactionApi {
 
-    @Multipart
+    /**
+     * Direct REST create. Backend note: this path may use incremental savings recording (e.g. income-only),
+     * while **sync push** uses full savings recomputation. Clients should refresh
+     * `GET /api/savings_goals/current` after success if they cache monthly savings locally.
+     */
     @POST("api/transactions/")
-    suspend fun createTransaction(
-        @Part("name") name: RequestBody,
-        @Part("amount") amount: RequestBody,
-        @Part("type") type: RequestBody,
-        @Part("transaction_date") transactionDate: RequestBody,
-        @Part("wallet_id") walletId: RequestBody,
-        @Part("category_id") categoryId: RequestBody,
-        @Part("note") note: RequestBody?,
-        @Part("tags") tags: RequestBody?,
-        @Part receipt: MultipartBody.Part?
-    ): Response<TransactionDto>
+    suspend fun createTransaction(@Body request: TransactionCreateRequest): Response<TransactionDto>
 
     @POST("api/transactions/transfer")
     suspend fun createTransfer(@Body request: TransferCreateRequest): Response<TransferDto>
@@ -54,7 +52,7 @@ interface TransactionApi {
     suspend fun getTransactionsByWalletId(@Path("wallet_id") walletId: Int): Response<List<TransactionDto>>
 
     @DELETE("api/transactions/{transaction_id}")
-    suspend fun deleteTransaction(@Path("id") id: Int): Response<Unit>
+    suspend fun deleteTransaction(@Path("transaction_id") id: Int): Response<Unit>
 
 
     @GET("api/analytics/spending-trends")
@@ -85,5 +83,17 @@ interface TransactionApi {
     @GET("api/analytics/savings-trends")
     suspend fun getSavingsTrends(
         @Query("months") months: Int = 6
-    ): Response<SavingsTrendsResponse>
+    ): Response<SavingsTrendsResponse?>
+
+    // NEW FORECAST ENDPOINTS
+    @GET("api/analytics/forecast/savings")
+    suspend fun getSavingsForecast(
+        @Query("months_ahead") monthsAhead: Int = 3
+    ): Response<SavingsForecastResponse?>
+
+    @GET("api/analytics/forecast/spending")
+    suspend fun getSpendingForecast(): Response<SpendingForecastResponse?>
+
+    @GET("api/analytics/forecast/suggestions")
+    suspend fun getSavingsSuggestions(): Response<SavingsSuggestionsResponse?>
 }

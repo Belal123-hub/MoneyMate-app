@@ -13,6 +13,7 @@ import com.example.data.network.transaction.TransactionApi
 import com.example.data.network.wallet.WalletApi
 import org.koin.core.module.dsl.factoryOf
 import org.koin.core.module.dsl.singleOf
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 val networkModule = module {
@@ -21,8 +22,10 @@ val networkModule = module {
     factoryOf(Network::getJsonFactory)
     factoryOf(Network::getLoggingInterceptor)
     factoryOf(Network::getHeadersInterceptor)
+    factoryOf(Network::getImageAuthInterceptor)
     factoryOf(Network::getRefreshTokenAuthenticator)
     singleOf(Network::getHttpClient)
+    single(named("coilOkHttp")) { Network.getImageHttpClient(get(), get()) }
     singleOf(Network::getRetrofit)
     // apis
     single<AuthApi> { Network.getApi(get()) }

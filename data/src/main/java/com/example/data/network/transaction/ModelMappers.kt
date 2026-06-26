@@ -6,7 +6,10 @@ import com.example.data.network.transaction.model.CategoryResponse
 import com.example.data.network.transaction.model.CategorySummaryResponse
 import com.example.data.network.transaction.model.MonthlyComparisonResponse
 import com.example.data.network.transaction.model.MonthlySummary
+import com.example.data.network.transaction.model.SavingsForecastResponse
+import com.example.data.network.transaction.model.SavingsSuggestionsResponse
 import com.example.data.network.transaction.model.SavingsTrendsResponse
+import com.example.data.network.transaction.model.SpendingForecastResponse
 import com.example.data.network.transaction.model.TopCategoryResponse
 import com.example.domain.transaction.model.*
 
@@ -23,8 +26,8 @@ fun SavingsTrendsResponse.toDomain(): SavingsTrendsData {
             )
         },
         monthsAnalyzed = months_analyzed,
-        analysisPeriodStart = analysis_period.start_date,
-        analysisPeriodEnd = analysis_period.end_date
+        analysisPeriodStart = analysis_period?.start_date ?: "",
+        analysisPeriodEnd = analysis_period?.end_date ?: ""
     )
 }
 
@@ -86,5 +89,47 @@ fun AverageSpendingResponse.toDomain(): AverageSpendingData {
         totalPeriodSpent = total_period_spent,
         transactions = transactions,
         periodType = period_type
+    )
+}
+
+// NEW FORECAST MAPPERS
+fun SavingsForecastResponse.toDomain(): SavingsForecastData {
+    return SavingsForecastData(
+        currentSavings = current_savings,
+        averageMonthlySaving = average_monthly_saving,
+        monthsAhead = months_ahead,
+        projections = projections.map { 
+            SavingsProjection(
+                month = it.month,
+                projectedAmount = it.projected_amount,
+                cumulativeTotal = it.cumulative_total
+            )
+        },
+        forecastDate = forecast_date
+    )
+}
+
+fun SpendingForecastResponse.toDomain(): SpendingForecastData {
+    return SpendingForecastData(
+        spentSoFar = spent_so_far,
+        dailyAverageSpending = daily_average_spending,
+        forecastEndOfMonth = forecast_end_of_month,
+        daysElapsed = days_elapsed,
+        daysInMonth = days_in_month,
+        confidence = confidence
+    )
+}
+
+fun SavingsSuggestionsResponse.toDomain(): SavingsSuggestionData {
+    return SavingsSuggestionData(
+        suggestions = suggestions.map {
+            SavingsSuggestion(
+                type = it.type,
+                title = it.title,
+                message = it.message,
+                amount = it.amount
+            )
+        },
+        generatedAt = generated_at
     )
 }

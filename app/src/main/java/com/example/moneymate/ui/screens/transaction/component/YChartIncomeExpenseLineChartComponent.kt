@@ -50,6 +50,13 @@ fun YChartIncomeExpenseLineChartComponent(
         }
     }
 
+    println("📊 DEBUG: LineChart - Total days: ${days.size}, Filtered days: ${filteredDays.size}")
+    println("📊 DEBUG: LineChart - Date range: ${dateRange.startDate} to ${dateRange.endDate}")
+    if (filteredDays.isNotEmpty()) {
+        println("📊 DEBUG: LineChart - First day: ${filteredDays.first().date}, income=${filteredDays.first().income}, expense=${filteredDays.first().expenses}")
+        println("📊 DEBUG: LineChart - Last day: ${filteredDays.last().date}, income=${filteredDays.last().income}, expense=${filteredDays.last().expenses}")
+    }
+
     // Group days intelligently for the chart display
     val chartDays = remember(filteredDays) {
         ChartUtils.smartGroupDaysForChart(filteredDays)
@@ -61,6 +68,31 @@ fun YChartIncomeExpenseLineChartComponent(
 
     // Show grouping info to user
     val showGroupingInfo = filteredDays.size > chartDays.size
+
+    // Handle empty state
+    if (filteredDays.isEmpty() || (totalIncome == 0.0 && totalExpenses == 0.0)) {
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+        ) {
+            Text(
+                text = "No Transaction Data",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.Gray
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Add income or expense transactions to see trends",
+                fontSize = 12.sp,
+                color = Color.LightGray
+            )
+        }
+        return
+    }
 
 
     Column(

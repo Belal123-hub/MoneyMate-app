@@ -156,7 +156,7 @@ fun SavingsGoalSection(
                 modifier = Modifier.align(Alignment.CenterHorizontally).height(48.dp).padding(horizontal = 24.dp),
                 shape = RoundedCornerShape(12.dp),
                 border = BorderStroke(1.dp, Color(0xFF4B5563)),
-                enabled = savingsGoal != null && !isLoading && !isError
+                enabled = !isLoading
             ) {
                 Text("Adjust Goal", color = Color(0xFF1F2937), fontWeight = FontWeight.SemiBold)
                 Spacer(modifier = Modifier.width(8.dp))

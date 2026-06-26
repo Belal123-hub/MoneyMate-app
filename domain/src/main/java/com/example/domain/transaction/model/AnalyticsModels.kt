@@ -113,7 +113,11 @@ data class TransactionChartsData(
     val topCategories: List<TopCategoryData> = emptyList(),
     val averageSpending: List<AverageSpendingData> = emptyList(),
     val currentChartType: ChartType = ChartType.MONTHLY_TRENDS,
-    val currentPeriod: PeriodFilter = PeriodFilter.MONTH
+    val currentPeriod: PeriodFilter = PeriodFilter.MONTH,
+    // NEW FORECAST DATA
+    val savingsForecast: SavingsForecastData? = null,
+    val spendingForecast: SpendingForecastData? = null,
+    val savingsSuggestions: SavingsSuggestionData? = null
 )
 
 // In domain/transaction/model/ChartModels.kt
@@ -139,3 +143,39 @@ private fun getDefaultEndDate(): String {
     val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
     return dateFormat.format(calendar.time)
 }
+
+// FORECAST DOMAIN MODELS
+data class SavingsForecastData(
+    val currentSavings: Double,
+    val averageMonthlySaving: Double,
+    val monthsAhead: Int,
+    val projections: List<SavingsProjection>,
+    val forecastDate: String
+)
+
+data class SavingsProjection(
+    val month: String,
+    val projectedAmount: Double,
+    val cumulativeTotal: Double
+)
+
+data class SpendingForecastData(
+    val spentSoFar: Double,
+    val dailyAverageSpending: Double,
+    val forecastEndOfMonth: Double,
+    val daysElapsed: Int,
+    val daysInMonth: Int,
+    val confidence: String
+)
+
+data class SavingsSuggestionData(
+    val suggestions: List<SavingsSuggestion>,
+    val generatedAt: String
+)
+
+data class SavingsSuggestion(
+    val type: String,
+    val title: String,
+    val message: String,
+    val amount: Double?
+)

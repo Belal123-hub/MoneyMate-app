@@ -7,6 +7,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -26,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import com.example.domain.budget.model.Budget
 import com.example.domain.savingsGoal.model.SavingsGoal
 import com.example.domain.transaction.model.TransactionEntity
+import com.example.moneymate.ui.components.DeleteTransactionDialog
 import com.example.moneymate.R
 import com.example.moneymate.ui.components.TransactionsSection
 import kotlin.math.cos
@@ -36,11 +41,14 @@ fun RegularHomeContent(
     recentTransactions: List<TransactionEntity>? = null,
     budgetData: Budget? = null,
     savingsGoal: SavingsGoal? = null,
+    unsyncedTransactionIds: Set<Int> = emptySet(),
     currencySymbol: String = "$",
     onSeeAllBudget: () -> Unit,
     onSeeAllTransactions: () -> Unit,
+    onDeleteTransaction: (TransactionEntity) -> Unit,
     isInLazyColumn: Boolean = false
 ) {
+    var transactionPendingDelete by remember { mutableStateOf<TransactionEntity?>(null) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -65,9 +73,22 @@ fun RegularHomeContent(
         TransactionsSection(
             transactions = recentTransactions ?: emptyList(),
             currencySymbol = currencySymbol,
+            unsyncedTransactionIds = unsyncedTransactionIds,
             modifier = Modifier.fillMaxWidth(),
             onSeeAll = onSeeAllTransactions,
+            onDeleteTransaction = { transactionPendingDelete = it },
             isInLazyColumn = isInLazyColumn
+        )
+    }
+
+    transactionPendingDelete?.let { transaction ->
+        DeleteTransactionDialog(
+            transactionName = transaction.name,
+            onConfirm = {
+                onDeleteTransaction(transaction)
+                transactionPendingDelete = null
+            },
+            onDismiss = { transactionPendingDelete = null }
         )
     }
 }
@@ -117,52 +138,12 @@ fun SavingsGoalsSection(
                     modifier = Modifier.fillMaxWidth()
                 )
             } else {
-                // Fallback hardcoded data if no savings goal is set
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        SavingsGoalCard(
-                            goalName = "iPhone 13 Mini",
-                            savedAmount = 699.0,
-                            targetAmount = 1499.0,
-                            currencySymbol = currencySymbol,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        SavingsGoalCard(
-                            goalName = "Car",
-                            savedAmount = 20000.0,
-                            targetAmount = 30500.0,
-                            currencySymbol = currencySymbol,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        SavingsGoalCard(
-                            goalName = "Macbook Pro M1",
-                            savedAmount = 1200.0,
-                            targetAmount = 1499.0,
-                            currencySymbol = currencySymbol,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        SavingsGoalCard(
-                            goalName = "House",
-                            savedAmount = 15000.0,
-                            targetAmount = 30500.0,
-                            currencySymbol = currencySymbol,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
+                Text(
+                    text = "No savings goal data available yet",
+                    color = Color(0xFF666666),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
     }
@@ -446,9 +427,9 @@ fun NoBudgetLimitContent(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Use BudgetGauge for no limit case (progress = 1.0)
+            // No limit configured: keep gauge at 0% to avoid false "critical" red state.
             BudgetGauge(
-                progress = 1.0f, // Full gauge for no limit
+                progress = 0f,
                 spentAmount = budget.monthlySpent,
                 limitAmount = 0.0,
                 currencySymbol = currencySymbol,
@@ -490,14 +471,14 @@ fun DesignBudgetContent(
         NoBudgetLimitContent(
             budget = Budget(
                 id = 1,
-                month = 11,
-                year = 2025,
+                month = 1,
+                year = 2024,
                 monthlyLimit = 0.0,
                 dailyLimit = 0.0,
-                monthlySpent = 276.0,
-                dailySpent = 25.0,
-                lastUpdatedDate = "2025-11-28",
-                createdAt = "2025-11-19T21:33:15"
+                monthlySpent = 0.0,
+                dailySpent = 0.0,
+                lastUpdatedDate = "",
+                createdAt = ""
             ),
             currencySymbol = currencySymbol
         )

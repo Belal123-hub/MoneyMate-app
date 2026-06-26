@@ -31,7 +31,40 @@ fun CategoryPieChartComponent(
     modifier: Modifier = Modifier
 ) {
     val categories = categorySummaryData.expenses
-    val totalAmount = categorySummaryData.totalExpenses
+    // Some backends occasionally return `totalExpenses = 0` while still returning per-category totals.
+    // Fall back to summing categories so the chart can render.
+    val computedTotal = categories.sumOf { it.totalAmount }
+    val totalAmount = if (categorySummaryData.totalExpenses > 0.0) {
+        categorySummaryData.totalExpenses
+    } else {
+        computedTotal
+    }
+
+    // Handle empty state
+    if (categories.isEmpty() || totalAmount == 0.0) {
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            contentAlignment = androidx.compose.ui.Alignment.Center
+        ) {
+            Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                Text(
+                    text = "No Expense Data",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.Gray
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Add transactions with categories to see expense distribution",
+                    fontSize = 12.sp,
+                    color = Color.LightGray
+                )
+            }
+        }
+        return
+    }
 
     Column(
         modifier = modifier

@@ -10,13 +10,14 @@ import java.time.LocalDate
 data class GoalResponse(
     val id: Int,
     val title: String,
-    val description: String?,
-    val image: String?,
-    val deadline: String?, // ISO format date string
-    val goal_amount: String,
-    val amount_saved: String,
-    val wallet_id: Int,
-    val currency: String
+    val goal_amount: Double,
+    val current_amount: Double = 0.0,
+    val currency: String,
+    val description: String? = null,
+    val deadline: String? = null,
+    val image_url: String? = null,
+    val user_id: Int? = null,
+    val created_at: String? = null
 )
 
 @Serializable
@@ -25,7 +26,8 @@ data class GoalUpdateRequest(
     val description: String? = null,
     val image: String? = null,
     val deadline: String? = null,
-    val goal_amount: String? = null
+    val goal_amount: String? = null,
+    val current_amount: Double? = null
 )
 
 // Note: For create, we use multipart form data, so no separate request model needed
@@ -36,11 +38,18 @@ fun GoalResponse.toDomain(): Goal {
         id = id,
         title = title,
         description = description,
-        image = image,
-        deadline = deadline?.let { LocalDate.parse(it) },
-        goalAmount = goal_amount.toDoubleOrNull() ?: 0.0,
-        amountSaved = amount_saved.toDoubleOrNull() ?: 0.0,
-        walletId = wallet_id,
+        image = image_url,
+        deadline = deadline?.let { 
+            // Handle both date-only and datetime formats
+            if (it.contains("T")) {
+                LocalDate.parse(it.substring(0, 10))
+            } else {
+                LocalDate.parse(it)
+            }
+        },
+        goalAmount = goal_amount,
+        amountSaved = current_amount,
+        walletId = user_id ?: 0,
         currency = currency
     )
 }

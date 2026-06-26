@@ -4,10 +4,6 @@ package com.example.data.network.transaction
 import com.example.data.network.transaction.model.*
 import com.example.domain.transaction.TransactionRepository
 import com.example.domain.transaction.model.*
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.MultipartBody
-import okhttp3.RequestBody.Companion.asRequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.Response
 import java.text.SimpleDateFormat
 import java.util.*
@@ -30,39 +26,19 @@ class TransactionRepositoryImpl(
                 else -> throw IllegalArgumentException("Unsupported amount type: ${amount::class.simpleName}")
             }
 
-            // Create form data parts
-            val name = createTransaction.name.toRequestBody("text/plain".toMediaTypeOrNull())
-            val amount = amountString.toRequestBody("text/plain".toMediaTypeOrNull())
-            val type = createTransaction.type.toRequestBody("text/plain".toMediaTypeOrNull())
-            val transactionDate = createTransaction.transactionDate.toRequestBody("text/plain".toMediaTypeOrNull())
-            val walletId = createTransaction.walletId.toString().toRequestBody("text/plain".toMediaTypeOrNull())
-            val categoryId = createTransaction.categoryId.toString().toRequestBody("text/plain".toMediaTypeOrNull())
-            val note = createTransaction.note?.toRequestBody("text/plain".toMediaTypeOrNull())
-
-            // Convert tags list to comma-separated string
-            val tags = if (createTransaction.tags.isNotEmpty()) {
-                createTransaction.tags.joinToString(",").toRequestBody("text/plain".toMediaTypeOrNull())
-            } else {
-                null
-            }
-
-            // Handle receipt file
-            val receipt: MultipartBody.Part? = createTransaction.receiptFile?.let { file ->
-                val requestFile = file.asRequestBody("image/*".toMediaTypeOrNull())
-                MultipartBody.Part.createFormData("receipt", file.name, requestFile)
-            }
-
-            val response = apiService.createTransaction(
-                name = name,
-                amount = amount,
-                type = type,
-                transactionDate = transactionDate,
-                walletId = walletId,
-                categoryId = categoryId,
-                note = note,
-                tags = tags,
-                receipt = receipt
+            // Create JSON request object
+            val request = TransactionCreateRequest(
+                name = createTransaction.name,
+                amount = amountString,
+                type = createTransaction.type,
+                transactionDate = createTransaction.transactionDate,
+                walletId = createTransaction.walletId,
+                categoryId = createTransaction.categoryId,
+                note = createTransaction.note,
+                tags = createTransaction.tags.map { it.toString() }
             )
+
+            val response = apiService.createTransaction(request)
             handleTransactionResponse(response)
         } catch (e: Exception) {
             Result.failure(e)
@@ -188,14 +164,29 @@ class TransactionRepositoryImpl(
         endDate: String
     ): Result<CategorySummaryData> {
         return try {
+            println("📊 DEBUG: Getting category summary from $startDate to $endDate")
             val response = apiService.getCategorySummary(startDate, endDate)
             if (response.isSuccessful) {
                 val body = response.body()
-                Result.success(body?.toDomain() ?: getEmptyCategorySummary())
+                println("📊 DEBUG: Category summary response body: $body")
+                if (body != null) {
+                    println("✅ DEBUG: Category summary - ${body.expenses.size} expenses, ${body.incomes.size} incomes, total expenses: ${body.total_expenses}")
+                    if (body.expenses.isNotEmpty()) {
+                        println("  First expense: ${body.expenses.first()}")
+                    }
+                    Result.success(body.toDomain())
+                } else {
+                    println("⚠️ DEBUG: Category summary returned null body")
+                    Result.success(getEmptyCategorySummary())
+                }
             } else {
+                println("❌ DEBUG: Category summary API error ${response.code()}")
+                println("  Error body: ${response.errorBody()?.string()}")
                 Result.failure(Exception("Failed to fetch category summary"))
             }
         } catch (e: Exception) {
+            println("❌ DEBUG: Category summary exception - ${e::class.java.simpleName}: ${e.message}")
+            e.printStackTrace()
             Result.failure(e)
         }
     }
@@ -283,13 +274,77 @@ class TransactionRepositoryImpl(
             val response = apiService.getSavingsTrends(months)
             if (response.isSuccessful) {
                 val savingsTrendsResponse = response.body()
-                if (savingsTrendsResponse != null) {
+                if (savingsTrendsResponse != null && savingsTrendsResponse.monthly_trends.isNotEmpty()) {
+                    println("✅ DEBUG: Savings trends API success - ${savingsTrendsResponse.monthly_trends.size} months")
                     Result.success(savingsTrendsResponse.toDomain())
+                } else if (savingsTrendsResponse != null && savingsTrendsResponse.monthly_trends.isEmpty()) {
+                    println("⚠️ DEBUG: Savings trends API returned empty data")
+                    Result.failure(Exception("No savings data available"))
+                } else {
+                    println("❌ DEBUG: Savings trends API returned null body")
+                    Result.failure(Exception("No data received from server"))
+                }
+            } else {
+                val errorBody = response.errorBody()?.string() ?: "Unknown error"
+                println("❌ DEBUG: Savings trends API error ${response.code()} - $errorBody")
+                Result.failure(Exception("API error: ${response.code()}"))
+            }
+        } catch (e: Exception) {
+            println("❌ DEBUG: Savings trends exception - ${e.message}")
+            e.printStackTrace()
+            Result.failure(e)
+        }
+    }
+
+    // NEW FORECAST METHODS
+    override suspend fun getSavingsForecast(monthsAhead: Int): Result<com.example.domain.transaction.model.SavingsForecastData> {
+        return try {
+            val response = apiService.getSavingsForecast(monthsAhead)
+            if (response.isSuccessful) {
+                val body = response.body()
+                if (body != null) {
+                    Result.success(body.toDomain())
                 } else {
                     Result.failure(Exception("No data received from server"))
                 }
             } else {
-                Result.failure(Exception("API error: ${response.code()} - ${response.errorBody()?.string()}"))
+                Result.failure(Exception("API error: ${response.code()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun getSpendingForecast(): Result<com.example.domain.transaction.model.SpendingForecastData> {
+        return try {
+            val response = apiService.getSpendingForecast()
+            if (response.isSuccessful) {
+                val body = response.body()
+                if (body != null) {
+                    Result.success(body.toDomain())
+                } else {
+                    Result.failure(Exception("No data received from server"))
+                }
+            } else {
+                Result.failure(Exception("API error: ${response.code()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun getSavingsSuggestions(): Result<com.example.domain.transaction.model.SavingsSuggestionData> {
+        return try {
+            val response = apiService.getSavingsSuggestions()
+            if (response.isSuccessful) {
+                val body = response.body()
+                if (body != null) {
+                    Result.success(body.toDomain())
+                } else {
+                    Result.failure(Exception("No data received from server"))
+                }
+            } else {
+                Result.failure(Exception("API error: ${response.code()}"))
             }
         } catch (e: Exception) {
             Result.failure(e)

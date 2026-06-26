@@ -5,10 +5,13 @@ import android.annotation.SuppressLint
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -20,9 +23,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import android.widget.Toast
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import com.example.domain.transaction.model.TransactionEntity
+import com.example.moneymate.ui.components.DeleteTransactionDialog
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -35,6 +44,10 @@ import com.example.moneymate.ui.components.states.FullScreenError
 import com.example.moneymate.ui.components.states.FullScreenLoading
 import com.example.moneymate.ui.components.states.SectionStateManager
 import com.example.moneymate.ui.navigation.BottomNavigationBar
+import com.example.moneymate.ui.offline.OfflineSnackbarHost
+import com.example.moneymate.ui.offline.SyncStatus
+import com.example.moneymate.ui.offline.SyncStatusIndicator
+import com.example.moneymate.ui.offline.PendingSyncIndicator
 import com.example.moneymate.ui.screens.transaction.component.SwipeableChartContainer
 import com.example.moneymate.ui.screens.transaction.component.TransactionListItem
 import com.example.moneymate.ui.screens.transaction.component.TransactionTopBar
@@ -52,6 +65,8 @@ fun TransactionScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
+    var transactionPendingDelete by remember { mutableStateOf<TransactionEntity?>(null) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -101,7 +116,7 @@ fun TransactionScreen(
                 onNavigationItemSelected = onNavigationItemSelected
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { OfflineSnackbarHost(isOffline = uiState.syncStatus == SyncStatus.OFFLINE, snackbarHostState = snackbarHostState) }
     ) { paddingValues ->
         // Main content with state management
         when {
@@ -127,6 +142,13 @@ fun TransactionScreen(
                 ) {
                     // Charts section with state management
                     item {
+                        SyncStatusIndicator(
+                            status = uiState.syncStatus,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
+
+                    item {
                         SectionStateManager(
                             state = uiState.chartsState,
                             onRetry = { viewModel.loadAllChartData() }
@@ -149,6 +171,25 @@ fun TransactionScreen(
                                 viewModel = viewModel,
                                 modifier = Modifier.fillMaxWidth()
                             )
+
+                            // NEW FORECAST CHARTS
+                            chartsData.spendingForecast?.let { forecast ->
+                                androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(16.dp))
+                                com.example.moneymate.ui.screens.transaction.component.SpendingForecastChart(
+                                    spendingForecast = forecast,
+                                    modifier = Modifier.padding(horizontal = 16.dp)
+                                )
+                            }
+
+                            chartsData.savingsSuggestions?.let { suggestions ->
+                                if (suggestions.suggestions.isNotEmpty()) {
+                                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(16.dp))
+                                    com.example.moneymate.ui.screens.transaction.component.AISuggestionsCard(
+                                        suggestionsData = suggestions,
+                                        modifier = Modifier.padding(horizontal = 16.dp)
+                                    )
+                                }
+                            }
                         }
                     }
 
@@ -198,7 +239,13 @@ fun TransactionScreen(
                             val transactions = (uiState.transactionsState as com.example.moneymate.utils.ScreenState.Success).data
                             if (transactions.isNotEmpty()) {
                                 items(transactions) { transaction ->
-                                    TransactionListItem(transaction = transaction)
+                                    TransactionListItem(
+                                        transaction = transaction,
+                                        // Prefer Room truth: if it's in unsynced ids, show pending.
+                                        // Fallback: treat negative temp IDs as pending.
+                                        isSynced = !uiState.unsyncedTransactionIds.contains(transaction.id) && transaction.id >= 0,
+                                        onDelete = { transactionPendingDelete = transaction }
+                                    )
                                 }
                             }
                         }
@@ -209,5 +256,18 @@ fun TransactionScreen(
                 }
             }
         }
+    }
+
+    transactionPendingDelete?.let { transaction ->
+        DeleteTransactionDialog(
+            transactionName = transaction.name,
+            onConfirm = {
+                viewModel.deleteTransaction(transaction.id) { message ->
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+                transactionPendingDelete = null
+            },
+            onDismiss = { transactionPendingDelete = null }
+        )
     }
 }

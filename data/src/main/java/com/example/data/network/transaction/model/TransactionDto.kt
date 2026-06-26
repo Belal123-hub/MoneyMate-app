@@ -6,10 +6,10 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class TransactionDto(
-    @SerialName("name") val name: String,
     @SerialName("id") val id: Int,
-    @SerialName("amount") val amount: String,
-    @SerialName("note") val note: String?,
+    @SerialName("name") val name: String,
+    @SerialName("amount") val amount: Double,
+    @SerialName("note") val note: String? = null,
     @SerialName("type") val type: String,
     @SerialName("transaction_date") val transactionDate: String,
     @SerialName("wallet_id") val walletId: Int,
@@ -21,9 +21,9 @@ data class TransactionDto(
 ) {
     fun toEntity(): TransactionEntity {
         return TransactionEntity(
-            id = id, // ID should come first in constructor
+            id = id,
             name = name,
-            amount = amount,
+            amount = amount.toString(),
             note = note,
             type = type,
             transactionDate = transactionDate,

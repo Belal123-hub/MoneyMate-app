@@ -133,6 +133,7 @@ fun GoalsListScreen(
                             items(goals) { goal ->
                                 VerticalGoalCard(
                                     goal = goal,
+                                    isSynced = !uiState.unsyncedGoalIds.contains(goal.id),
                                     onClick = {
                                         // Navigate to goal detail
                                         navController.navigate("goalDetail/${goal.id}")
@@ -158,6 +159,7 @@ fun GoalsListScreen(
 @Composable
 fun VerticalGoalCard(
     goal: Goal,
+    isSynced: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -212,6 +214,13 @@ fun VerticalGoalCard(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .padding(12.dp)
+                )
+
+                com.example.moneymate.ui.offline.PendingSyncIndicator(
+                    isSynced = isSynced,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(10.dp)
                 )
             }
             

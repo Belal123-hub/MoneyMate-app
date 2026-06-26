@@ -2,6 +2,7 @@ package com.example.moneymate.ui.screens.transaction
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.offline.OfflineSyncStatusDataSource
 import com.example.domain.transaction.model.CategorySummaryData
 import com.example.domain.transaction.model.ChartFilter
 import com.example.domain.transaction.model.ChartType
@@ -11,14 +12,21 @@ import com.example.domain.transaction.model.MonthlyComparisonData
 import com.example.domain.transaction.model.PeriodFilter
 import com.example.domain.transaction.model.TransactionChartsData
 import com.example.domain.transaction.model.TransactionEntity
+import com.example.domain.transaction.model.CategoryData
 import com.example.domain.transaction.usecase.GetAverageSpendingUseCase
 import com.example.domain.transaction.usecase.GetCategorySummaryUseCase
 import com.example.domain.transaction.usecase.GetMonthlyChartDataUseCase
 import com.example.domain.transaction.usecase.GetMonthlyComparisonUseCase
+import com.example.domain.transaction.usecase.DeleteTransactionUseCase
 import com.example.domain.transaction.usecase.GetRecentTransactionsUseCase
+import com.example.domain.transaction.usecase.GetSavingsForecastUseCase
+import com.example.domain.transaction.usecase.GetSavingsSuggestionsUseCase
+import com.example.domain.transaction.usecase.GetSpendingForecastUseCase
 import com.example.domain.transaction.usecase.GetTopCategoriesCurrentMonthUseCase
 import com.example.moneymate.utils.DataSyncManager
 import com.example.moneymate.utils.ScreenState
+import com.example.moneymate.utils.network.ConnectivityObserver
+import com.example.moneymate.ui.offline.SyncStatus
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,8 +38,14 @@ class TransactionScreenViewModel(
     private val getCategorySummaryUseCase: GetCategorySummaryUseCase,
     private val getMonthlyComparisonUseCase: GetMonthlyComparisonUseCase,
     private val getRecentTransactionsUseCase: GetRecentTransactionsUseCase,
+    private val deleteTransactionUseCase: DeleteTransactionUseCase,
     private val getTopCategoriesCurrentMonthUseCase: GetTopCategoriesCurrentMonthUseCase,
-    private val getAverageSpendingUseCase: GetAverageSpendingUseCase
+    private val getAverageSpendingUseCase: GetAverageSpendingUseCase,
+    private val getSavingsForecastUseCase: GetSavingsForecastUseCase,
+    private val getSpendingForecastUseCase: GetSpendingForecastUseCase,
+    private val getSavingsSuggestionsUseCase: GetSavingsSuggestionsUseCase,
+    private val offlineSyncStatusDataSource: OfflineSyncStatusDataSource,
+    private val connectivityObserver: ConnectivityObserver
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TransactionScreenState())
@@ -40,9 +54,32 @@ class TransactionScreenViewModel(
     init {
         println("DEBUG: TransactionScreenViewModel init - loading data")
         loadData()
+        observeUnsyncedTransactions()
+        observeConnectivity()
 
         // Listen for data change events
         setupDataChangeListener()
+    }
+
+    private fun observeUnsyncedTransactions() {
+        viewModelScope.launch {
+            offlineSyncStatusDataSource.observeUnsyncedTransactionIds().collect { ids ->
+                _uiState.value = _uiState.value.copy(
+                    unsyncedTransactionIds = ids,
+                    syncStatus = if (ids.isEmpty()) _uiState.value.syncStatus else SyncStatus.SYNCING
+                )
+            }
+        }
+    }
+
+    private fun observeConnectivity() {
+        viewModelScope.launch {
+            connectivityObserver.isOnline.collect { isOnline ->
+                _uiState.value = _uiState.value.copy(
+                    syncStatus = if (!isOnline) SyncStatus.OFFLINE else if (_uiState.value.unsyncedTransactionIds.isEmpty()) SyncStatus.IDLE else SyncStatus.SYNCING
+                )
+            }
+        }
     }
 
     private fun setupDataChangeListener() {
@@ -114,24 +151,70 @@ class TransactionScreenViewModel(
             _uiState.value = _uiState.value.copy(chartsState = ScreenState.Loading)
 
             try {
-                println("DEBUG: Loading all chart data...")
+                println("📊 DEBUG: Loading all chart data...")
 
                 // Load all chart data in parallel
-                val monthlyChartDeferred = async { getMonthlyChartDataUseCase.execute(months = 12) }
+                val monthlyChartDeferred = async { 
+                    println("  ⏳ Loading monthly chart...")
+                    getMonthlyChartDataUseCase.execute(months = 12) 
+                }
                 val defaultDateRange = DateRange(getDefaultStartDate(), getDefaultEndDate())
-                val lineChartDataDeferred = async { getMonthlyChartDataUseCase.executeForLineChart(defaultDateRange) }
-                val categorySummaryDeferred = async { getCategorySummaryUseCase.execute() }
-                val monthlyComparisonDeferred = async { getMonthlyComparisonUseCase.execute() }
-                val topCategoriesDeferred = async { getTopCategoriesCurrentMonthUseCase() }
-                val averageSpendingDeferred = async { getAverageSpendingUseCase(PeriodFilter.MONTH) }
+                val lineChartDataDeferred = async { 
+                    println("  ⏳ Loading line chart data...")
+                    getMonthlyChartDataUseCase.executeForLineChart(defaultDateRange) 
+                }
+                val categorySummaryDeferred = async { 
+                    println("  ⏳ Loading category summary...")
+                    println("  📊 DEBUG: getCategorySummaryUseCase instance: ${getCategorySummaryUseCase != null}")
+                    println("  📊 DEBUG: Category summary dateRange=${defaultDateRange.startDate}..${defaultDateRange.endDate}")
+                    val result = getCategorySummaryUseCase.execute(
+                        startDate = defaultDateRange.startDate,
+                        endDate = defaultDateRange.endDate
+                    )
+                    println("  📊 DEBUG: Category summary result: ${result.expenses.size} expenses")
+                    result
+                }
+                val monthlyComparisonDeferred = async { 
+                    println("  ⏳ Loading monthly comparison...")
+                    getMonthlyComparisonUseCase.execute() 
+                }
+                val topCategoriesDeferred = async { 
+                    println("  ⏳ Loading top categories...")
+                    getTopCategoriesCurrentMonthUseCase() 
+                }
+                val averageSpendingDeferred = async { 
+                    println("  ⏳ Loading average spending...")
+                    getAverageSpendingUseCase(PeriodFilter.MONTH) 
+                }
+                // NEW FORECAST DATA
+                val savingsForecastDeferred = async { getSavingsForecastUseCase(3) }
+                val spendingForecastDeferred = async { getSpendingForecastUseCase() }
+                val savingsSuggestionsDeferred = async { getSavingsSuggestionsUseCase() }
 
                 // Await all results
                 val monthlyChart = monthlyChartDeferred.await()
+                println("  ✅ Monthly chart loaded: ${monthlyChart.months.size} months, ${monthlyChart.days.size} days")
+                
                 val lineChartData = lineChartDataDeferred.await()
+                println("  ✅ Line chart loaded: ${lineChartData.days.size} days")
+                
                 val categorySummary = categorySummaryDeferred.await()
+                println("  ✅ Category summary: ${categorySummary.expenses.size} expense categories")
+                
                 val monthlyComparison = monthlyComparisonDeferred.await()
+                println("  ✅ Monthly comparison: ${monthlyComparison.categories.size} categories")
+                
                 val topCategories = topCategoriesDeferred.await().getOrElse { emptyList() }
+                println("  ✅ Top categories: ${topCategories.size} categories")
+                
                 val averageSpending = averageSpendingDeferred.await().getOrElse { emptyList() }
+                println("  ✅ Average spending: ${averageSpending.size} categories")
+                
+                // NEW FORECAST DATA
+                val savingsForecast = savingsForecastDeferred.await().getOrNull()
+                val spendingForecast = spendingForecastDeferred.await().getOrNull()
+                val savingsSuggestions = savingsSuggestionsDeferred.await().getOrNull()
+                println("  ✅ Forecasts loaded - Savings: ${savingsForecast != null}, Spending: ${spendingForecast != null}, Suggestions: ${savingsSuggestions?.suggestions?.size ?: 0}")
 
                 val chartsData = TransactionChartsData(
                     monthlyChart = monthlyChart.copy(
@@ -139,12 +222,41 @@ class TransactionScreenViewModel(
                         dateRange = defaultDateRange,
                         selectedFilter = ChartFilter.EXPENSES
                     ),
-                    categorySummary = categorySummary,
+                    categorySummary = categorySummary.takeIf { it.expenses.isNotEmpty() && it.totalExpenses > 0.0 }
+                        ?: run {
+                            // Fallback: if backend category-summary is empty, derive pie data from top categories
+                            // (still useful for the "Expense Distribution" pie chart).
+                            if (topCategories.isNotEmpty()) {
+                                val expenses = topCategories.map {
+                                    CategoryData(
+                                        categoryId = it.categoryId,
+                                        categoryName = it.categoryName,
+                                        categoryType = "expense",
+                                        totalAmount = it.totalAmount,
+                                        transactionCount = 0
+                                    )
+                                }
+                                val total = expenses.sumOf { it.totalAmount }
+                                println("  ⚠️ Category summary empty; using topCategories fallback: ${expenses.size} categories, total=$total")
+                                CategorySummaryData(
+                                    expenses = expenses,
+                                    incomes = emptyList(),
+                                    totalExpenses = total,
+                                    totalIncomes = 0.0,
+                                    netFlow = -total
+                                )
+                            } else {
+                                categorySummary
+                            }
+                        },
                     monthlyComparison = monthlyComparison,
                     topCategories = topCategories,
                     averageSpending = averageSpending,
                     currentChartType = ChartType.MONTHLY_TRENDS,
-                    currentPeriod = PeriodFilter.MONTH
+                    currentPeriod = PeriodFilter.MONTH,
+                    savingsForecast = savingsForecast,
+                    spendingForecast = spendingForecast,
+                    savingsSuggestions = savingsSuggestions
                 )
 
                 _uiState.value = _uiState.value.copy(
@@ -250,6 +362,22 @@ class TransactionScreenViewModel(
         }
     }
 
+    fun deleteTransaction(transactionId: Int, onError: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            val result = deleteTransactionUseCase(transactionId)
+            if (result.isSuccess) {
+                DataSyncManager.notifyDataChanged(DataSyncManager.DataChangeEvent.TransactionsUpdated)
+                DataSyncManager.notifyDataChanged(DataSyncManager.DataChangeEvent.WalletsUpdated)
+                loadRecentTransactions()
+                loadAllChartData()
+            } else {
+                onError(
+                    result.exceptionOrNull()?.message ?: "Could not delete transaction"
+                )
+            }
+        }
+    }
+
     fun loadRecentTransactions() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(transactionsState = ScreenState.Loading)
@@ -261,7 +389,8 @@ class TransactionScreenViewModel(
                 if (result.isSuccess) {
                     val transactions = result.getOrNull() ?: emptyList()
                     _uiState.value = _uiState.value.copy(
-                        transactionsState = ScreenState.Success(transactions)
+                        transactionsState = ScreenState.Success(transactions),
+                        unsyncedTransactionIds = offlineSyncStatusDataSource.getUnsyncedTransactionIds().toSet()
                     )
                     println("DEBUG: Loaded ${transactions.size} transactions")
                 } else {
@@ -672,15 +801,16 @@ class TransactionScreenViewModel(
 
     // Helper functions for date calculations
     private fun getDefaultStartDate(): String {
+        // Default to current month (matches backend expectations & Swagger usage)
         val calendar = java.util.Calendar.getInstance()
-        calendar.add(java.util.Calendar.DAY_OF_YEAR, -30) // Default to 30 days ago
-        val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+        calendar.set(java.util.Calendar.DAY_OF_MONTH, 1)
+        val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
         return dateFormat.format(calendar.time)
     }
 
     private fun getDefaultEndDate(): String {
         val calendar = java.util.Calendar.getInstance()
-        val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+        val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
         return dateFormat.format(calendar.time)
     }
 
@@ -709,7 +839,9 @@ class TransactionScreenViewModel(
 
 data class TransactionScreenState(
     val chartsState: ScreenState<TransactionChartsData> = ScreenState.Loading,
-    val transactionsState: ScreenState<List<TransactionEntity>> = ScreenState.Loading
+    val transactionsState: ScreenState<List<TransactionEntity>> = ScreenState.Loading,
+    val unsyncedTransactionIds: Set<Int> = emptySet(),
+    val syncStatus: SyncStatus = SyncStatus.IDLE
 ) {
     // Helper properties for backward compatibility
     val isLoading: Boolean
@@ -757,13 +889,13 @@ data class TransactionScreenState(
 // Helper functions for default dates
 private fun getDefaultStartDate(): String {
     val calendar = java.util.Calendar.getInstance()
-    calendar.add(java.util.Calendar.DAY_OF_YEAR, -30)
-    val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+    calendar.set(java.util.Calendar.DAY_OF_MONTH, 1)
+    val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
     return dateFormat.format(calendar.time)
 }
 
 private fun getDefaultEndDate(): String {
     val calendar = java.util.Calendar.getInstance()
-    val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+    val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
     return dateFormat.format(calendar.time)
 }

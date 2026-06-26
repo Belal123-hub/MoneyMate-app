@@ -1,5 +1,6 @@
 package com.example.data.network.auth
 
+import com.example.data.network.auth.model.LoginRequest
 import com.example.data.network.auth.model.SignUpRequest
 import com.example.data.network.auth.model.SignUpResponse
 import com.example.data.network.auth.model.TokenResponse
@@ -13,7 +14,6 @@ interface AuthApi {
 
     @POST("api/auth/login")
     suspend fun signIn(
-        @Query("email") email: String,
-        @Query("password") password: String
+        @Body request: LoginRequest
     ): TokenResponse
 }

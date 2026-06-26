@@ -43,14 +43,21 @@ class GetMonthlyChartDataUseCase(
     // In GetMonthlyChartDataUseCase.kt - UPDATE executeForLineChart
     suspend fun executeForLineChart(dateRange: DateRange): MonthlyChartData {
         return try {
+            println("📊 DEBUG: executeForLineChart - Fetching transactions from ${dateRange.startDate} to ${dateRange.endDate}")
             // Get all transactions in the date range
             val transactions = transactionRepository.getTransactionsByDateRange(
                 dateRange.startDate,
                 dateRange.endDate
             ).getOrElse { emptyList() }
+            
+            println("📊 DEBUG: executeForLineChart - Got ${transactions.size} transactions")
+            transactions.forEachIndexed { index, tx ->
+                println("  Transaction $index: ${tx.name}, type=${tx.type}, amount=${tx.amount}, date=${tx.transactionDate}")
+            }
 
             // Convert to daily data
             val dailyData = convertTransactionsToDailyData(transactions, dateRange)
+            println("📊 DEBUG: executeForLineChart - Converted to ${dailyData.size} days of data")
 
             MonthlyChartData(
                 months = emptyList(),
@@ -59,6 +66,8 @@ class GetMonthlyChartDataUseCase(
                 dateRange = dateRange
             )
         } catch (e: Exception) {
+            println("❌ DEBUG: executeForLineChart - Exception: ${e.message}")
+            e.printStackTrace()
             // Fallback with realistic data based on your actual amounts
             val fallbackData = generateFallbackFromYourData(dateRange)
             MonthlyChartData(
@@ -101,20 +110,39 @@ class GetMonthlyChartDataUseCase(
 
         // Aggregate transactions by date
         transactions.forEach { transaction ->
-            val dateString = transaction.transactionDate
-            val currentData = dailyMap[dateString] ?: return@forEach
-
-            when (transaction.type.lowercase()) {
-                "income" -> {
-                    dailyMap[dateString] = currentData.copy(
-                        income = currentData.income + transaction.amount.toDouble()
-                    )
+            // Parse the transaction date and format it to match the dailyMap keys
+            val dateString = try {
+                // Handle ISO format like "2026-04-09T00:00:00"
+                if (transaction.transactionDate.contains("T")) {
+                    transaction.transactionDate.substring(0, 10) // Extract "2026-04-09"
+                } else {
+                    transaction.transactionDate
                 }
-                "expense" -> {
-                    dailyMap[dateString] = currentData.copy(
-                        expenses = currentData.expenses + transaction.amount.toDouble()
-                    )
+            } catch (e: Exception) {
+                transaction.transactionDate
+            }
+            
+            println("  📊 Processing transaction: ${transaction.name}, date=$dateString, type=${transaction.type}, amount=${transaction.amount}")
+            
+            val currentData = dailyMap[dateString]
+            if (currentData != null) {
+                when (transaction.type.lowercase()) {
+                    "income" -> {
+                        dailyMap[dateString] = currentData.copy(
+                            income = currentData.income + transaction.amount.toDouble()
+                        )
+                        println("    ✅ Added income: ${transaction.amount} to $dateString")
+                    }
+                    "expense", "expenses" -> {
+                        dailyMap[dateString] = currentData.copy(
+                            expenses = currentData.expenses + transaction.amount.toDouble()
+                        )
+                        println("    ✅ Added expense: ${transaction.amount} to $dateString")
+                    }
+                    else -> println("    ⚠️ Unknown type: ${transaction.type}")
                 }
+            } else {
+                println("    ⚠️ Date $dateString not found in dailyMap (range: ${dateRange.startDate} to ${dateRange.endDate})")
             }
         }
 

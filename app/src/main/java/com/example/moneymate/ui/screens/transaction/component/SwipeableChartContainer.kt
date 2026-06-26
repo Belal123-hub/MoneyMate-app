@@ -63,6 +63,7 @@ fun SwipeableChartContainer(
 
             when (chartType) {
                 ChartType.MONTHLY_TRENDS -> {
+                    println("📊 DEBUG: Rendering MONTHLY_TRENDS - months: ${chartsData.monthlyChart.months.size}, days: ${chartsData.monthlyChart.days.size}")
                     YChartMonthlyBarChartComponent(
                         monthlyChartData = chartsData.monthlyChart,
                         onFilterChanged = onFilterChanged,
@@ -72,6 +73,7 @@ fun SwipeableChartContainer(
                 }
                 // Add new chart type for comparison line chart
                 ChartType.CATEGORY_BREAKDOWN -> {
+                    println("📊 DEBUG: Rendering CATEGORY_BREAKDOWN - days: ${chartsData.monthlyChart.days.size}, dateRange: ${chartsData.monthlyChart.dateRange}")
                     YChartIncomeExpenseLineChartComponent(
                         monthlyChartData = chartsData.monthlyChart,
                         onDateRangeChanged = onDateRangeChanged,
@@ -79,6 +81,7 @@ fun SwipeableChartContainer(
                     )
                 }
                 ChartType.MONTHLY_COMPARISON -> {
+                    println("📊 DEBUG: Rendering MONTHLY_COMPARISON - expenses: ${chartsData.categorySummary.expenses.size}, total: ${chartsData.categorySummary.totalExpenses}")
                     CategoryPieChartComponent(
                         categorySummaryData = chartsData.categorySummary,
                         modifier = Modifier.fillMaxSize()

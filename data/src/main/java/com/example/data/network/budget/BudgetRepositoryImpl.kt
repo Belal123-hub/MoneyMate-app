@@ -5,10 +5,18 @@ import com.example.domain.budget.BudgetRepository
 import com.example.domain.budget.model.Budget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 class BudgetRepositoryImpl(
     private val budgetApi: BudgetApi
 ) : BudgetRepository {
+
+    private fun formatLimit(limit: Double?): String? {
+        if (limit == null) return null
+        // Backend appears to expect integer-like strings (Swagger examples: "700", "100")
+        // Avoid sending "100.0" which triggers 500 on server for some inputs.
+        return String.format(Locale.US, "%.0f", limit)
+    }
 
     override suspend fun getCurrentBudget(): Result<Budget> {
         return withContext(Dispatchers.IO) {
@@ -34,8 +42,8 @@ class BudgetRepositoryImpl(
         return withContext(Dispatchers.IO) {
             try {
                 val request = BudgetUpdateRequest(
-                    monthlyLimit = monthlyLimit?.toString(),
-                    dailyLimit = dailyLimit?.toString()
+                    monthlyLimit = formatLimit(monthlyLimit),
+                    dailyLimit = formatLimit(dailyLimit)
                 )
                 val response = budgetApi.updateCurrentBudget(request)
                 if (response.isSuccessful) {

@@ -14,10 +14,10 @@ data class UserDetailedResponse(
 data class UserResponse(
     @SerialName("id") val id: Int,
     @SerialName("email") val email: String,
-    @SerialName("full_name") val fullName: String?,
-    @SerialName("phone_number") val phoneNumber: String?,
-    @SerialName("date_of_birth") val dateOfBirth: String?,
-    @SerialName("avatar_url") val avatarUrl: String?,
+    @SerialName("full_name") val fullName: String? = null,
+    @SerialName("phone_number") val phoneNumber: String? = null,
+    @SerialName("date_of_birth") val dateOfBirth: String? = null,
+    @SerialName("avatar_url") val avatarUrl: String? = null,
     @SerialName("default_currency") val defaultCurrency: String,
     @SerialName("created_at") val createdAt: String
 )

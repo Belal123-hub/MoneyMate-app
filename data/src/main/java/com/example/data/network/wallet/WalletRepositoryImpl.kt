@@ -7,6 +7,9 @@ import com.example.domain.wallet.WalletRepository
 import com.example.domain.wallet.model.TotalBalance
 import com.example.domain.wallet.model.Wallet
 import com.example.domain.wallet.model.WalletBalance
+import com.example.domain.wallet.model.WalletMember
+import com.example.data.network.wallet.model.WalletMemberRoleUpdateRequest
+import com.example.data.network.wallet.model.WalletShareRequest
 import com.example.domain.wallet.model.WalletCreateRequest
 import com.example.domain.wallet.model.WalletUpdateRequest as DomainWalletUpdateRequest
 import kotlinx.coroutines.flow.Flow
@@ -135,6 +138,67 @@ class WalletRepositoryImpl(
         } catch (e: Exception) {
             println("❌ [Repository] EXCEPTION in getWalletBalance(): ${e.message}")
             e.printStackTrace()
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun shareWallet(walletId: Int, userEmail: String, role: String): Result<Unit> {
+        return try {
+            val response = walletApi.shareWallet(walletId, WalletShareRequest(email = userEmail, role = role))
+            if (response.isSuccessful) {
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception("Failed to share wallet: ${response.code()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun getWalletMembers(walletId: Int): Result<List<WalletMember>> {
+        return try {
+            val members = walletApi.getWalletMembers(walletId).map { it.toDomain(walletId) }
+            Result.success(members)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun updateMemberRole(walletId: Int, userId: Int, role: String): Result<Unit> {
+        return try {
+            val response = walletApi.updateMemberRole(
+                walletId,
+                userId,
+                WalletMemberRoleUpdateRequest(role = role)
+            )
+            if (response.isSuccessful) {
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception("Failed to update member role: ${response.code()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun removeMember(walletId: Int, userId: Int): Result<Unit> {
+        return try {
+            val response = walletApi.removeMember(walletId, userId)
+            if (response.isSuccessful || response.code() == 404) {
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception("Failed to remove member: ${response.code()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun getSharedWallets(): Result<List<Wallet>> {
+        return try {
+            val wallets = walletApi.getSharedWallets().map { it.toDomain() }
+            Result.success(wallets)
+        } catch (e: Exception) {
             Result.failure(e)
         }
     }

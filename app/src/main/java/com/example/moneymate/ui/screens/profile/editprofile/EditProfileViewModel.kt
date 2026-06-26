@@ -1,5 +1,6 @@
 package com.example.moneymate.ui.screens.profile.editprofile
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.domain.user.model.User
@@ -8,17 +9,24 @@ import com.example.domain.user.usecase.GetUserUseCase
 import com.example.domain.user.usecase.UpdateUserUseCase
 import com.example.domain.user.usecase.UploadAvatarUseCase
 import com.example.moneymate.utils.AppError
+import com.example.moneymate.utils.AvatarDiagnostics
+import com.example.moneymate.utils.AvatarDiskCache
+import com.example.moneymate.utils.AvatarImageCache
+import com.example.moneymate.utils.DataSyncManager
+import com.example.moneymate.utils.CurrencyUtils
 import com.example.moneymate.utils.ErrorHandler
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.io.File
 
 class EditProfileViewModel(
     private val getUserUseCase: GetUserUseCase,
     private val updateUserUseCase: UpdateUserUseCase,
     private val uploadAvatarUseCase: UploadAvatarUseCase,
-    private val deleteAvatarUseCase: DeleteAvatarUseCase
+    private val deleteAvatarUseCase: DeleteAvatarUseCase,
+    private val appContext: Context
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(EditProfileState())
@@ -46,7 +54,7 @@ class EditProfileViewModel(
                     originalAvatarUrl = user.avatarUrl
 
                     // Convert backend currency code to display format
-                    val displayCurrency = convertCurrencyToDisplayFormat(user.defaultCurrency ?: "USD")
+                    val displayCurrency = CurrencyUtils.toDisplayFormat(user.defaultCurrency ?: "USD")
 
                     _uiState.value = _uiState.value.copy(
                         user = user,
@@ -116,7 +124,7 @@ class EditProfileViewModel(
                 val currentUser = _uiState.value.user
                 if (currentUser != null) {
                     // Convert display format back to currency code for backend
-                    val currencyCode = extractCurrencyCode(_uiState.value.defaultCurrency)
+                    val currencyCode = CurrencyUtils.parseCurrencyCode(_uiState.value.defaultCurrency)
 
                     val updatedUser = currentUser.copy(
                         fullName = _uiState.value.fullName.ifEmpty { null },
@@ -128,12 +136,21 @@ class EditProfileViewModel(
 
                     val result = updateUserUseCase(updatedUser)
                     if (result.isSuccess) {
+                        val serverUser = result.getOrThrow()
+                        val mergedUser = serverUser.copy(
+                            avatarUrl = serverUser.avatarUrl?.takeIf { it.isNotBlank() }
+                                ?: currentUser.avatarUrl
+                        )
+                        originalAvatarUrl = mergedUser.avatarUrl
                         _navigationEvent.value = NavigationEvent.ProfileUpdated
                         _uiState.value = _uiState.value.copy(
-                            user = result.getOrThrow(),
+                            user = mergedUser,
                             isLoading = false,
                             hasChanges = false,
-                            originalUser = result.getOrThrow()
+                            originalUser = mergedUser
+                        )
+                        DataSyncManager.notifyDataChanged(
+                            DataSyncManager.DataChangeEvent.UserDataUpdated(mergedUser.avatarUrl)
                         )
                     } else {
                         _errorState.value = ErrorHandler.mapExceptionToAppError(
@@ -156,14 +173,31 @@ class EditProfileViewModel(
                 println("DEBUG: Starting avatar upload with URI: $avatarUri")
                 val result = uploadAvatarUseCase(avatarUri)
                 if (result.isSuccess) {
-                    println("DEBUG: Avatar upload successful")
                     val updatedUser = result.getOrThrow()
+                    AvatarDiagnostics.log(
+                        "EditProfile",
+                        "Upload OK avatar_url=${updatedUser.avatarUrl}"
+                    )
+                    val diskFile = AvatarDiskCache.cacheFromUpload(
+                        appContext,
+                        File(avatarUri),
+                        updatedUser.avatarUrl
+                    )
+                    AvatarImageCache.onAvatarUploaded(
+                        updatedUser.avatarUrl,
+                        diskFile?.absolutePath
+                    )
+                    originalAvatarUrl = updatedUser.avatarUrl
                     _uiState.value = _uiState.value.copy(
                         user = updatedUser,
-                        isLoading = false
+                        isLoading = false,
+                        hasChanges = false,
+                        originalUser = updatedUser
                     )
-                    // Avatar has changed, so enable the update button
-                    _uiState.value = _uiState.value.copy(hasChanges = true)
+                    DataSyncManager.notifyDataChanged(
+                        DataSyncManager.DataChangeEvent.UserDataUpdated(updatedUser.avatarUrl)
+                    )
+                    _navigationEvent.value = NavigationEvent.ProfileUpdated
                 } else {
                     val exception = result.exceptionOrNull() ?: Exception("Failed to upload avatar")
                     println("DEBUG: Avatar upload failed: ${exception.message}")
@@ -184,11 +218,15 @@ class EditProfileViewModel(
             try {
                 val result = deleteAvatarUseCase()
                 if (result.isSuccess) {
+                    val updatedUser = result.getOrThrow()
+                    originalAvatarUrl = updatedUser.avatarUrl
                     _uiState.value = _uiState.value.copy(
-                        user = result.getOrThrow(),
+                        user = updatedUser,
                         isLoading = false
                     )
-                    // Avatar has changed, so enable the update button
+                    DataSyncManager.notifyDataChanged(
+                        DataSyncManager.DataChangeEvent.UserDataUpdated(updatedUser.avatarUrl)
+                    )
                     _uiState.value = _uiState.value.copy(hasChanges = true)
                 } else {
                     _errorState.value = ErrorHandler.mapExceptionToAppError(
@@ -262,7 +300,9 @@ class EditProfileViewModel(
                     state.email != originalUser.email ||
                     state.phoneNumber != (originalUser.phoneNumber ?: "") ||
                     state.birthDate != (originalUser.dateOfBirth ?: "") ||
-                    state.defaultCurrency != (originalUser.defaultCurrency ?: "USD - $") ||
+                    state.defaultCurrency != CurrencyUtils.toDisplayFormat(
+                        originalUser.defaultCurrency ?: "USD"
+                    ) ||
                     state.newPassword.isNotBlank() ||
                     state.confirmPassword.isNotBlank() ||
                     state.user?.avatarUrl != originalAvatarUrl
@@ -279,43 +319,6 @@ class EditProfileViewModel(
         _navigationEvent.value = null
     }
 
-    private fun convertCurrencyToDisplayFormat(currencyCode: String): String {
-        return when (currencyCode.uppercase()) {
-            "USD" -> "USD - $"
-            "EUR" -> "EUR - €"
-            "GBP" -> "GBP - £"
-            "JPY" -> "JPY - ¥"
-            "CAD" -> "CAD - C$"
-            "AUD" -> "AUD - A$"
-            "CHF" -> "CHF - CHF"
-            "CNY" -> "CNY - ¥"
-            "INR" -> "INR - ₹"
-            "RUB" -> "RUB - ₽"
-            "BRL" -> "BRL - R$"
-            "MXN" -> "MXN - $"
-            "KRW" -> "KRW - ₩"
-            else -> "USD - $" // Default fallback
-        }
-    }
-
-    private fun extractCurrencyCode(displayCurrency: String): String {
-        return when {
-            displayCurrency.contains("USD") -> "USD"
-            displayCurrency.contains("EUR") -> "EUR"
-            displayCurrency.contains("GBP") -> "GBP"
-            displayCurrency.contains("JPY") -> "JPY"
-            displayCurrency.contains("CAD") -> "CAD"
-            displayCurrency.contains("AUD") -> "AUD"
-            displayCurrency.contains("CHF") -> "CHF"
-            displayCurrency.contains("CNY") -> "CNY"
-            displayCurrency.contains("INR") -> "INR"
-            displayCurrency.contains("RUB") -> "RUB"
-            displayCurrency.contains("BRL") -> "BRL"
-            displayCurrency.contains("MXN") -> "MXN"
-            displayCurrency.contains("KRW") -> "KRW"
-            else -> "USD" // Default fallback
-        }
-    }
 }
 
 data class EditProfileState(
