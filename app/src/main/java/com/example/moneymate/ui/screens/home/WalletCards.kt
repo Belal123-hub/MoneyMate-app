@@ -63,14 +63,16 @@ fun WalletBalanceCard(
 
         Row(
             modifier = Modifier
-                .padding(start = 252.dp, top = 71.dp, end = 24.dp, bottom = 12.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End
         ) {
             Text(
                 text = "My Wallet",
                 color = Color(0xFFFFFFFF),
                 fontSize = 12.sp,
+                maxLines = 1
             )
             Spacer(modifier = Modifier.width(8.dp))
             Box(

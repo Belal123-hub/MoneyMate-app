@@ -1,6 +1,7 @@
 package com.example.data.network.common
 
 import com.example.data.network.common.interceptors.HeadersInterceptor
+import com.example.data.network.common.interceptors.ImageAuthInterceptor
 import com.example.data.network.common.interceptors.RefreshTokenAuthenticator
 import com.example.domain.accessToken.AccessTokenRepository
 import kotlinx.serialization.json.Json
@@ -21,7 +22,8 @@ import javax.net.ssl.X509TrustManager
 
 @Suppress("MagicNumber", "LongParameterList")
 object Network {
-    private const val BASE_URL = "https://10.0.2.2:7148"  // Changed to HTTPS
+    /** API host; image URLs in the app must use this same base (see Config.buildImageUrl). */
+    const val BASE_URL = "http://10.87.189.10:5143/"
 
     private const val CONTENT_TYPE = "application/json"
 
@@ -49,6 +51,10 @@ object Network {
     ): HeadersInterceptor = HeadersInterceptor(
         accessTokenRepository = accessTokenRepository,
     )
+
+    fun getImageAuthInterceptor(
+        accessTokenRepository: AccessTokenRepository,
+    ): ImageAuthInterceptor = ImageAuthInterceptor(accessTokenRepository)
 
     fun getRefreshTokenAuthenticator(
         accessTokenRepository: AccessTokenRepository,
@@ -101,6 +107,19 @@ object Network {
         authenticator(authenticator)
 
         // Configure unsafe SSL for development
+        configureUnsafeSsl(this)
+    }.build()
+
+    /** OkHttp client for Coil — Bearer token + image-friendly Accept header. */
+    fun getImageHttpClient(
+        imageAuthInterceptor: ImageAuthInterceptor,
+        loggingInterceptor: HttpLoggingInterceptor,
+    ): OkHttpClient = OkHttpClient.Builder().apply {
+        connectTimeout(15, TimeUnit.SECONDS)
+        readTimeout(60, TimeUnit.SECONDS)
+        writeTimeout(30, TimeUnit.SECONDS)
+        addInterceptor(imageAuthInterceptor)
+        addInterceptor(loggingInterceptor)
         configureUnsafeSsl(this)
     }.build()
 

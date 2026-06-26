@@ -19,7 +19,6 @@
         android:theme="@style/Theme.MoneyMate"
         android:usesCleartextTraffic="true"
         tools:targetApi="28">
-        >
 
         <activity
             android:name=".MainActivity"

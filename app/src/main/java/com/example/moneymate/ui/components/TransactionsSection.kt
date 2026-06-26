@@ -42,11 +42,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.domain.transaction.model.TransactionEntity
 import com.example.moneymate.R
+import com.example.moneymate.ui.screens.transaction.component.TransactionRowTrailing
 
 @Composable
 private fun TransactionItem(
     transaction: TransactionEntity,
+    isSynced: Boolean,
     currencySymbol: String = "$",
+    onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -91,22 +94,17 @@ private fun TransactionItem(
 
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "Category ID: ${transaction.categoryId}",
+                    text = formatTransactionAddedTime(transaction.createdAt),
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF666666)
                 )
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Text(
-                text = if (transaction.type == "income")
-                    "+$currencySymbol${transaction.amount}"
-                else
-                    "-$currencySymbol${transaction.amount}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (transaction.type == "income") Color(0xFF10B981) else Color(0xFFEF4444),
-                fontWeight = FontWeight.Bold
+            TransactionRowTrailing(
+                amountText = formatTransactionAmountText(transaction, currencySymbol),
+                amountColor = transactionAmountColor(transaction.type),
+                isSynced = isSynced,
+                onDelete = onDelete
             )
         }
     }
@@ -117,7 +115,9 @@ fun TransactionsSection(
     transactions: List<TransactionEntity>,
     currencySymbol: String = "$",
     availableTags: List<String> = emptyList(),
+    unsyncedTransactionIds: Set<Int> = emptySet(),
     onSeeAll: () -> Unit = {},
+    onDeleteTransaction: (TransactionEntity) -> Unit = {},
     modifier: Modifier = Modifier,
     isInLazyColumn: Boolean = false // NEW PARAMETER
 ) {
@@ -234,7 +234,9 @@ fun TransactionsSection(
                     filteredTransactions.forEach { transaction ->
                         TransactionItem(
                             transaction = transaction,
+                            isSynced = !unsyncedTransactionIds.contains(transaction.id),
                             currencySymbol = currencySymbol,
+                            onDelete = { onDeleteTransaction(transaction) },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -247,7 +249,9 @@ fun TransactionsSection(
                     items(filteredTransactions) { transaction ->
                         TransactionItem(
                             transaction = transaction,
-                            currencySymbol = currencySymbol
+                            isSynced = !unsyncedTransactionIds.contains(transaction.id),
+                            currencySymbol = currencySymbol,
+                            onDelete = { onDeleteTransaction(transaction) }
                         )
                     }
                 }

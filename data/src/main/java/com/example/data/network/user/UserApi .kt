@@ -27,6 +27,6 @@ interface UserApi {
 
     @DELETE("api/users/me/avatar")
     suspend fun deleteAvatar(): Response<UserResponse>
-    @POST("api/auth/logout")
+    @GET("api/auth/logout")
     suspend fun logout(): Response<Unit>
 }

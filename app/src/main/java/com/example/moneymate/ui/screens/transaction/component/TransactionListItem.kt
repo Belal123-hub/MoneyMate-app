@@ -14,12 +14,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.domain.transaction.model.TransactionEntity
-import java.text.SimpleDateFormat
-import java.util.Locale
+import com.example.moneymate.ui.components.formatTransactionAddedTime
+import com.example.moneymate.ui.components.formatTransactionAmountText
+import com.example.moneymate.ui.components.transactionAmountColor
 
 @Composable
 fun TransactionListItem(
     transaction: TransactionEntity,
+    isSynced: Boolean = true,
+    onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -33,51 +36,24 @@ fun TransactionListItem(
             modifier = Modifier.weight(1f)
         ) {
             Text(
-                text = transaction. name,
+                text = transaction.name,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium,
                 color = Color.Black
             )
             Text(
-                text = formatTransactionDate(transaction.transactionDate),
+                text = formatTransactionAddedTime(transaction.createdAt),
                 fontSize = 12.sp,
                 color = Color(0xFF666666)
             )
         }
 
-        Text(
-            text = formatAmount(transaction.amount.toString(), transaction.type),
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Medium,
-            color = getAmountColor(transaction.type)
+        TransactionRowTrailing(
+            amountText = formatTransactionAmountText(transaction),
+            amountColor = transactionAmountColor(transaction.type),
+            isSynced = isSynced,
+            onDelete = onDelete
         )
     }
 }
 
-private fun formatTransactionDate(dateString: String): String {
-    return try {
-        val inputFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-        val outputFormat = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
-        val date = inputFormat.parse(dateString)
-        outputFormat.format(date ?: return dateString)
-    } catch (e: Exception) {
-        dateString
-    }
-}
-
-private fun formatAmount(amount: String, type: String): String {
-    val sign = when (type) {
-        "income" -> "+"
-        "expense" -> "-"
-        else -> ""
-    }
-    return "$sign$$amount"
-}
-
-private fun getAmountColor(type: String): Color {
-    return when (type) {
-        "income" -> Color(0xFF4ECDC4)
-        "expense" -> Color(0xFFFF6B6B)
-        else -> Color(0xFF666666)
-    }
-}

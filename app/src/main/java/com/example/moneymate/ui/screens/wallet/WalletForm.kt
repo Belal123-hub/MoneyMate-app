@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.example.moneymate.utils.CurrencyUtils
 
 
 @Composable
@@ -42,6 +43,7 @@ fun WalletForm(
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
+    val currencySymbol = CurrencyUtils.getCurrencySymbol(selectedCurrency)
 
     Column(
         modifier = modifier
@@ -51,6 +53,7 @@ fun WalletForm(
         // Total Balance Card
         TotalBalanceCard(
             initialBalance = initialBalance,
+            currencyCode = selectedCurrency,
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -83,6 +86,7 @@ fun WalletForm(
                 onValueChange = onInitialBalanceChange,
                 label = { Text("Initial balance") },
                 placeholder = { Text("0.00") },
+                prefix = { Text(currencySymbol) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.fillMaxWidth(),
                 colors = OutlinedTextFieldDefaults.colors(

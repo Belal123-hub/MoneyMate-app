@@ -33,8 +33,12 @@ class ProfileOptionsScreenViewModel(
                 val result = getUserUseCase()
                 if (result.isSuccess) {
                     val user = result.getOrThrow()
+                    val previousAvatar = _uiState.value.user?.avatarUrl
+                    val mergedUser = user.copy(
+                        avatarUrl = user.avatarUrl?.takeIf { it.isNotBlank() } ?: previousAvatar
+                    )
                     _uiState.value = _uiState.value.copy(
-                        user = user,
+                        user = mergedUser,
                         isLoading = false
                     )
                 } else {

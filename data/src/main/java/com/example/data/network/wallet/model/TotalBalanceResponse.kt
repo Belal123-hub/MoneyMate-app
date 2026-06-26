@@ -105,7 +105,7 @@ fun TotalBalanceResponse.toDomain(): TotalBalance {
     return TotalBalance(
         totalBalance = total_balance,
         currency = currency,
-        breakdown = breakdown.map { it.toDomain() }
+        breakdown = breakdown.map { it.toDomain() } as Map<String, Double>
     )
 }
 

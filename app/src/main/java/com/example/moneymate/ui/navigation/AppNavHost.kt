@@ -1,13 +1,17 @@
 package com.example.moneymate.ui.navigation
 
 import StartScreen
+import android.annotation.SuppressLint
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -33,8 +37,10 @@ import com.example.moneymate.ui.screens.wallet.CreateWalletScreen
 import com.example.moneymate.ui.screens.wallet.EditWalletScreen
 import com.example.moneymate.ui.screens.wallet.WalletDetailScreen
 import com.example.moneymate.ui.screens.wallet.WalletScreen
+import com.example.moneymate.ui.screens.wallet.WalletViewModel
 import org.koin.androidx.compose.koinViewModel
 
+@SuppressLint("UnrememberedGetBackStackEntry")
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun AppNavHost(
@@ -144,29 +150,33 @@ fun AppNavHost(
                 }
             )
         }
-        composable(NavigationItem.Wallets.route) {
-            WalletScreen(
-                currentScreen = "wallets",
-                onNavigateToWalletCreation = {
-                    navController.navigate(NavigationItem.CreateWallet.route)
-                },
-                onNavigateToWalletDetail = { walletId ->
-                    navController.navigate(NavigationItem.WalletDetail.createRoute(walletId))
-                },
-                onNavigationItemSelected = { route ->
-                    when (route) {
-                        "home" -> navController.navigate(NavigationItem.Home.route)
-                        "transactions" -> navController.navigate(NavigationItem.Transactions.route)
-                        "goals" -> navController.navigate(NavigationItem.Goals.route)
+        composable(NavigationItem.Wallets.route) { walletsEntry ->
+            CompositionLocalProvider(LocalViewModelStoreOwner provides walletsEntry) {
+                val walletViewModel: WalletViewModel = koinViewModel()
+                WalletScreen(
+                    viewModel = walletViewModel,
+                    currentScreen = "wallets",
+                    onNavigateToWalletCreation = {
+                        navController.navigate(NavigationItem.CreateWallet.route)
+                    },
+                    onNavigateToWalletDetail = { walletId ->
+                        navController.navigate(NavigationItem.WalletDetail.createRoute(walletId))
+                    },
+                    onNavigationItemSelected = { route ->
+                        when (route) {
+                            "home" -> navController.navigate(NavigationItem.Home.route)
+                            "transactions" -> navController.navigate(NavigationItem.Transactions.route)
+                            "goals" -> navController.navigate(NavigationItem.Goals.route)
+                        }
+                    },
+                    onBackClick = {
+                        navController.popBackStack()
+                    },
+                    onAddRecord = {
+                        navController.navigate(NavigationItem.AddTransaction.route)
                     }
-                },
-                onBackClick = {
-                    navController.popBackStack()
-                },
-                onAddRecord = {
-                    navController.navigate(NavigationItem.AddTransaction.route)
-                }
-            )
+                )
+            }
         }
 
         composable(
@@ -195,9 +205,16 @@ fun AppNavHost(
         }
 
         composable(NavigationItem.CreateWallet.route) {
-            CreateWalletScreen(
-                onBackClick = { navController.popBackStack() }
-            )
+            val walletsEntry = remember(navController) {
+                navController.getBackStackEntry(NavigationItem.Wallets.route)
+            }
+            CompositionLocalProvider(LocalViewModelStoreOwner provides walletsEntry) {
+                val walletViewModel: WalletViewModel = koinViewModel()
+                CreateWalletScreen(
+                    viewModel = walletViewModel,
+                    onBackClick = { navController.popBackStack() }
+                )
+            }
         }
 
         // Updated GoalScreen with navController
@@ -302,7 +319,7 @@ fun AppNavHost(
                     navController.popBackStack()
                 },
                 onUpdateClick = {
-                    navController.popBackStack()
+                    navController.popBackStack(NavigationItem.Home.route, inclusive = false)
                 }
             )
         }

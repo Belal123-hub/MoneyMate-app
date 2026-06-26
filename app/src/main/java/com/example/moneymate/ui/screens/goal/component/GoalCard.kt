@@ -17,12 +17,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.domain.goal.model.Goal
+import com.example.moneymate.ui.offline.PendingSyncIndicator
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 @Composable
 fun GoalCard(
     goal: Goal,
+    isSynced: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -37,11 +39,19 @@ fun GoalCard(
         shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(12.dp)
-        ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            PendingSyncIndicator(
+                isSynced = isSynced,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(10.dp)
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(12.dp)
+            ) {
             // Goal Title
             Text(
                 text = goal.title,
@@ -116,6 +126,7 @@ fun GoalCard(
                         }
                     }
                 }
+            }
             }
         }
     }

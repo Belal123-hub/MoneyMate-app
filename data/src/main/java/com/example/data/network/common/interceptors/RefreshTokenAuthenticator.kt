@@ -1,8 +1,8 @@
 package com.example.data.network.common.interceptors
 
 import android.util.Log
+import com.example.data.network.auth.model.TokenResponse
 import com.example.data.network.common.model.TokenRequest
-import com.example.data.network.common.model.TokenResponse
 import com.example.domain.accessToken.AccessTokenRepository
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -136,6 +136,6 @@ class RefreshTokenAuthenticator(
 
     private companion object {
         const val TAG = "RefreshTokenAuth"
-        const val REFRESH_PATH = "v1/auth/refresh"
+        const val REFRESH_PATH = "api/auth/refresh"
     }
 }

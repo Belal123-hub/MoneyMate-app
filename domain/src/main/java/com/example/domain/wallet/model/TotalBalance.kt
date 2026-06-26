@@ -3,7 +3,7 @@ package com.example.domain.wallet.model
 data class TotalBalance(
     val totalBalance: Double,
     val currency: String,
-    val breakdown: List<BalanceBreakdown>
+    val breakdown: Map<String, Double> = emptyMap()
 )
 
 data class BalanceBreakdown(
