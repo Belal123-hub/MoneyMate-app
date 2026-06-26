@@ -16,9 +16,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
-import coil.compose.rememberAsyncImagePainter
 import com.example.moneymate.R
+import com.example.moneymate.ui.components.ProfileAvatar
 
 @Composable
 fun TopAppBarSection(
@@ -39,42 +38,12 @@ fun TopAppBarSection(
                 .clickable(onClick = onProfileClick),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF333333)),
-                contentAlignment = Alignment.Center
-            ) {
-                if (!profileImage.isNullOrEmpty()) {
-                    AsyncImage(
-                        model = profileImage,
-                        contentDescription = "Profile Avatar",
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(CircleShape),
-                        placeholder = rememberAsyncImagePainter(
-                            model = R.drawable.ic_person
-                        ),
-                        error = rememberAsyncImagePainter(
-                            model = R.drawable.ic_person
-                        )
-                    )
-                } else {
-                    val initials = userName.split(" ")
-                        .take(2)
-                        .joinToString("") { it.firstOrNull()?.toString() ?: "" }
-                        .take(2)
-                        .uppercase()
-
-                    Text(
-                        text = initials,
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
+            ProfileAvatar(
+                avatarUrl = profileImage,
+                fullName = userName,
+                modifier = Modifier.size(48.dp),
+                initialsFontSize = 16.sp
+            )
 
             Spacer(modifier = Modifier.width(12.dp))
 

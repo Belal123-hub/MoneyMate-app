@@ -1,6 +1,7 @@
 // data/src/main/java/com/example/data/network/user/UserRepositoryImpl.kt
 package com.example.data.network.user
 
+import android.util.Log
 import com.example.data.network.user.mapper.UpdateUserRequestMapper
 import com.example.data.network.user.mapper.UserDetailedResponseMapper
 import com.example.data.network.user.mapper.UserResponseMapper
@@ -93,7 +94,10 @@ class UserRepositoryImpl(
             if (response.isSuccessful) {
                 val userResponse = response.body()
                 if (userResponse != null) {
-                    println("DEBUG: Repository - Avatar upload successful")
+                    Log.i(
+                        "MoneyMateAvatar",
+                        "Upload response avatar_url=${userResponse.avatarUrl}"
+                    )
                     UserResponseMapper.toDomain(userResponse)
                 } else {
                     throw Exception("Avatar upload response is null")

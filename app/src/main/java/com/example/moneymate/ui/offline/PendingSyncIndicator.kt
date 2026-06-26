@@ -18,23 +18,35 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun PendingSyncIndicator(
     isSynced: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Use on wallet cards / colored backgrounds so the badge stays visible. */
+    highContrast: Boolean = false
 ) {
     if (isSynced) return
 
+    val backgroundColor = if (highContrast) {
+        Color(0xFFF59E0B)
+    } else {
+        MaterialTheme.colorScheme.errorContainer
+    }
+    val iconTint = if (highContrast) {
+        Color.White
+    } else {
+        MaterialTheme.colorScheme.onErrorContainer
+    }
+
     Box(
         modifier = modifier
-            .size(22.dp)
+            .size(24.dp)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.errorContainer),
+            .background(backgroundColor),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = Icons.Default.Schedule,
             contentDescription = "Pending sync",
-            tint = MaterialTheme.colorScheme.onErrorContainer,
-            modifier = Modifier.size(14.dp)
+            tint = iconTint,
+            modifier = Modifier.size(15.dp)
         )
     }
 }
-

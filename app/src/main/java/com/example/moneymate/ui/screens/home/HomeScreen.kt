@@ -34,7 +34,7 @@ import com.example.moneymate.ui.components.states.FullScreenError
 import com.example.moneymate.ui.components.states.FullScreenLoading
 import com.example.moneymate.ui.components.states.SectionStateManager
 import com.example.moneymate.ui.navigation.BottomNavigationBar
-import com.example.moneymate.utils.Config
+import com.example.moneymate.utils.CurrencyUtils
 import com.example.moneymate.utils.ScreenState
 import org.koin.androidx.compose.koinViewModel
 
@@ -72,11 +72,10 @@ fun HomeScreen(
     }
 
     val currencySymbol = remember(uiState.userDataState) {
-        when (uiState.userDataState) {
-            is ScreenState.Success -> {
-                extractCurrencySymbol((uiState.userDataState as ScreenState.Success<UserDetailedData>).data.user.defaultCurrency)
-            }
-            else -> "$"
+        when (val state = uiState.userDataState) {
+            is ScreenState.Success ->
+                CurrencyUtils.getCurrencySymbol(state.data.user.defaultCurrency)
+            else -> CurrencyUtils.getCurrencySymbol("USD")
         }
     }
 
@@ -111,9 +110,7 @@ fun HomeScreen(
                 ) { userData ->
                     TopAppBarSection(
                         userName = userData.user.fullName ?: "User",
-                        profileImage = userData.user.avatarUrl?.let { avatarUrl ->
-                            Config.buildImageUrl(avatarUrl)
-                        },
+                        profileImage = userData.user.avatarUrl,
                         onProfileClick = onProfileClick
                     )
                 }
@@ -200,6 +197,11 @@ fun HomeScreen(
                                             currencySymbol = currencySymbol,
                                             onSeeAllBudget = onSeeAllBudget,
                                             onSeeAllTransactions = onSeeAllTransactions,
+                                            onDeleteTransaction = { transaction ->
+                                                viewModel.deleteTransaction(transaction.id) { message ->
+                                                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                                                }
+                                            },
                                             isInLazyColumn = true
                                         )
                                     }
@@ -214,29 +216,6 @@ fun HomeScreen(
                 }
             }
         }
-    }
-}
-
-private fun extractCurrencySymbol(currencyString: String?): String {
-    if (currencyString?.contains(" - ") == true) {
-        return currencyString.split(" - ").last().trim()
-    }
-
-    return when (currencyString?.uppercase()) {
-        "USD" -> "$"
-        "EUR" -> "€"
-        "GBP" -> "£"
-        "JPY" -> "¥"
-        "CAD" -> "C$"
-        "AUD" -> "A$"
-        "CHF" -> "CHF"
-        "CNY" -> "¥"
-        "INR" -> "₹"
-        "RUB" -> "₽"
-        "BRL" -> "R$"
-        "MXN" -> "$"
-        "KRW" -> "₩"
-        else -> "$"
     }
 }
 

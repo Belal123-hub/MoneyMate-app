@@ -5,6 +5,7 @@ import com.example.data.network.goal.model.GoalResponse
 import com.example.data.network.savingsGoal.model.SavingsGoalResponse
 import com.example.data.network.tag.model.TagDto
 import com.example.data.network.transaction.model.TransactionDto
+import com.example.data.network.wallet.model.WalletMemberResponse
 import com.example.data.network.wallet.model.WalletResponse
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -28,7 +29,9 @@ data class SyncPullResponse(
     val wallets: List<WalletResponse> = emptyList(),
     val categories: List<CategoryResponse> = emptyList(),
     val goals: List<GoalResponse> = emptyList(),
-    val tags: List<TagDto> = emptyList()
+    val tags: List<TagDto> = emptyList(),
+    @SerialName("wallet_members")
+    val walletMembers: List<WalletMemberResponse> = emptyList()
 )
 
 @Serializable

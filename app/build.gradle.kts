@@ -76,7 +76,7 @@ dependencies {
     // room + work manager (offline sync)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.work.runtime.ktx)
-    // coil
+    // coil (authenticated fetch via AuthenticatedOkHttpFetcher + coilOkHttp client)
     implementation("io.coil-kt:coil-compose:2.4.0")
     // icon
     implementation("androidx.compose.material:material-icons-extended:1.5.4")

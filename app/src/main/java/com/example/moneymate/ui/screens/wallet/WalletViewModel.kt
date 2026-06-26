@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.offline.OfflineSyncOrchestrator
 import com.example.data.offline.OfflineSyncStatusDataSource
 import com.example.domain.transaction.model.TransactionEntity
+import com.example.domain.transaction.usecase.DeleteTransactionUseCase
 import com.example.domain.transaction.usecase.GetWalletTransactionsUseCase
 import com.example.domain.wallet.model.Wallet
 import com.example.domain.wallet.model.WalletCreateRequest
@@ -15,6 +16,11 @@ import com.example.domain.wallet.usecase.DeleteWalletUseCase
 import com.example.domain.wallet.usecase.GetWalletDetailUseCase
 import com.example.domain.wallet.usecase.GetWalletsUseCase
 import com.example.domain.wallet.usecase.UpdateWalletUseCase
+import com.example.domain.wallet.usecase.ShareWalletUseCase
+import com.example.domain.wallet.usecase.GetWalletMembersUseCase
+import com.example.domain.wallet.usecase.UpdateMemberRoleUseCase
+import com.example.domain.wallet.usecase.RemoveMemberUseCase
+import com.example.domain.wallet.model.WalletMember
 import com.example.moneymate.utils.DataSyncManager
 import com.example.moneymate.utils.ScreenState
 import com.example.moneymate.ui.offline.SyncStatus
@@ -22,6 +28,7 @@ import com.example.moneymate.utils.network.ConnectivityObserver
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class WalletViewModel(
@@ -31,9 +38,14 @@ class WalletViewModel(
     private val deleteWalletUseCase: DeleteWalletUseCase,
     private val updateWalletUseCase: UpdateWalletUseCase,
     private val getWalletTransactionsUseCase: GetWalletTransactionsUseCase,
+    private val deleteTransactionUseCase: DeleteTransactionUseCase,
     private val offlineSyncStatusDataSource: OfflineSyncStatusDataSource,
     private val connectivityObserver: ConnectivityObserver,
-    private val offlineSyncOrchestrator: OfflineSyncOrchestrator
+    private val offlineSyncOrchestrator: OfflineSyncOrchestrator,
+    private val shareWalletUseCase: ShareWalletUseCase,
+    private val getWalletMembersUseCase: GetWalletMembersUseCase,
+    private val updateMemberRoleUseCase: UpdateMemberRoleUseCase,
+    private val removeMemberUseCase: RemoveMemberUseCase
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(WalletScreenState())
@@ -41,6 +53,15 @@ class WalletViewModel(
 
     init {
         println("DEBUG: WalletViewModel init - loading wallets")
+        _uiState.update {
+            it.copy(
+                syncStatus = if (connectivityObserver.isOnline.value) {
+                    SyncStatus.IDLE
+                } else {
+                    SyncStatus.OFFLINE
+                }
+            )
+        }
         loadWallets()
         observeConnectivity()
         observeUnsyncedTransactions()
@@ -117,12 +138,19 @@ class WalletViewModel(
     fun refreshOnScreenFocus() {
         viewModelScope.launch {
             println("🔄 DEBUG: WalletViewModel - Screen focused, refreshing data...")
+            connectivityObserver.refresh()
+            refreshUnsyncedWalletIds()
             loadWallets()
-            // Also refresh transactions for selected wallet if any
             uiState.value.selectedWallet?.id?.let { walletId ->
                 loadTransactions(walletId)
             }
         }
+    }
+
+    private suspend fun refreshUnsyncedWalletIds() {
+        _uiState.value = _uiState.value.copy(
+            unsyncedWalletIds = offlineSyncStatusDataSource.getUnsyncedWalletIds()
+        )
     }
 
     fun loadWallets() {
@@ -135,6 +163,7 @@ class WalletViewModel(
                 val result = getWalletsUseCase()
                 if (result.isSuccess) {
                     val walletsList = result.getOrNull() ?: emptyList()
+                    refreshUnsyncedWalletIds()
                     _uiState.value = _uiState.value.copy(
                         walletsState = ScreenState.Success(walletsList)
                     )
@@ -173,16 +202,20 @@ class WalletViewModel(
                 println("DEBUG: Creating wallet...")
                 val result = createWalletUseCase(walletRequest)
                 if (result.isSuccess) {
+                    val created = result.getOrThrow()
+                    refreshUnsyncedWalletIds()
                     _uiState.value = _uiState.value.copy(
                         createWalletState = ScreenState.Success(Unit)
                     )
-                    println("DEBUG: Wallet created successfully")
-                    loadWallets() // Reload wallets to include the new one
+                    println(
+                        "DEBUG: Wallet created successfully id=${created.id} isSynced=${created.isSynced}"
+                    )
+                    loadWallets()
 
                     // Notify other screens about wallet update
                     DataSyncManager.notifyDataChanged(DataSyncManager.DataChangeEvent.WalletsUpdated)
                     // Also notify about user data update for HomeScreen balance refresh
-                    DataSyncManager.notifyDataChanged(DataSyncManager.DataChangeEvent.UserDataUpdated)
+                    DataSyncManager.notifyDataChanged(DataSyncManager.DataChangeEvent.UserDataUpdated())
                 } else {
                     val exception = result.exceptionOrNull() ?: Exception("Failed to create wallet")
                     _uiState.value = _uiState.value.copy(
@@ -208,6 +241,23 @@ class WalletViewModel(
         _uiState.value = _uiState.value.copy(selectedWallet = wallet)
         wallet.id?.let { walletId ->
             loadTransactions(walletId)
+        }
+    }
+
+    fun deleteTransaction(transactionId: Int, onError: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            val walletId = _uiState.value.selectedWallet?.id
+            val result = deleteTransactionUseCase(transactionId)
+            if (result.isSuccess) {
+                DataSyncManager.notifyDataChanged(DataSyncManager.DataChangeEvent.TransactionsUpdated)
+                DataSyncManager.notifyDataChanged(DataSyncManager.DataChangeEvent.WalletsUpdated)
+                walletId?.let { loadTransactions(it) }
+                loadWallets()
+            } else {
+                onError(
+                    result.exceptionOrNull()?.message ?: "Could not delete transaction"
+                )
+            }
         }
     }
 
@@ -245,6 +295,74 @@ class WalletViewModel(
         }
     }
 
+    fun loadWalletMembers(walletId: Int) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(walletMembersState = ScreenState.Loading) }
+            val result = getWalletMembersUseCase(walletId)
+            _uiState.update {
+                it.copy(
+                    walletMembersState = if (result.isSuccess) {
+                        ScreenState.Success(result.getOrNull() ?: emptyList())
+                    } else {
+                        ScreenState.Error(
+                            com.example.moneymate.utils.ErrorHandler.mapExceptionToAppError(
+                                result.exceptionOrNull() ?: Exception("Failed to load members")
+                            ),
+                            retryAction = { loadWalletMembers(walletId) }
+                        )
+                    }
+                )
+            }
+        }
+    }
+
+    fun showShareWalletDialog() {
+        _uiState.update { it.copy(showShareDialog = true) }
+    }
+
+    fun dismissShareWalletDialog() {
+        _uiState.update { it.copy(showShareDialog = false, shareMessage = null) }
+    }
+
+    fun shareWallet(walletId: Int, email: String, role: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(shareInProgress = true, shareMessage = null) }
+            val result = shareWalletUseCase(walletId, email, role)
+            if (result.isSuccess) {
+                _uiState.update {
+                    it.copy(
+                        shareInProgress = false,
+                        showShareDialog = false,
+                        shareMessage = "Invitation sent"
+                    )
+                }
+                loadWalletMembers(walletId)
+                loadWalletDetail(walletId)
+            } else {
+                _uiState.update {
+                    it.copy(
+                        shareInProgress = false,
+                        shareMessage = result.exceptionOrNull()?.message ?: "Share failed"
+                    )
+                }
+            }
+        }
+    }
+
+    fun updateMemberRole(walletId: Int, userId: Int, role: String) {
+        viewModelScope.launch {
+            updateMemberRoleUseCase(walletId, userId, role)
+            loadWalletMembers(walletId)
+        }
+    }
+
+    fun removeMember(walletId: Int, userId: Int) {
+        viewModelScope.launch {
+            removeMemberUseCase(walletId, userId)
+            loadWalletMembers(walletId)
+        }
+    }
+
     fun loadWalletDetail(walletId: Int) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(walletDetailState = ScreenState.Loading)
@@ -255,6 +373,7 @@ class WalletViewModel(
                     _uiState.value = _uiState.value.copy(
                         walletDetailState = ScreenState.Success(wallet)
                     )
+                    loadWalletMembers(walletId)
                     println("DEBUG: Loaded wallet detail: $wallet")
                 }
             } catch (e: Exception) {
@@ -287,7 +406,7 @@ class WalletViewModel(
                     // Notify other screens about wallet update
                     DataSyncManager.notifyDataChanged(DataSyncManager.DataChangeEvent.WalletsUpdated)
                     // Also notify about user data update for HomeScreen balance refresh
-                    DataSyncManager.notifyDataChanged(DataSyncManager.DataChangeEvent.UserDataUpdated)
+                    DataSyncManager.notifyDataChanged(DataSyncManager.DataChangeEvent.UserDataUpdated())
                 } else {
                     val exception = result.exceptionOrNull() ?: Exception("Failed to delete wallet")
                     _uiState.value = _uiState.value.copy(
@@ -313,6 +432,18 @@ class WalletViewModel(
 
     fun updateWallet(walletId: Int, walletRequest: WalletUpdateRequest) {
         viewModelScope.launch {
+            val walletDetail = (_uiState.value.walletDetailState as? ScreenState.Success)?.data
+            if (walletDetail != null && !walletDetail.canEditWallet()) {
+                _uiState.value = _uiState.value.copy(
+                    updateWalletState = ScreenState.Error(
+                        com.example.moneymate.utils.AppError.ValidationError(
+                            "You have view-only access to this wallet"
+                        )
+                    )
+                )
+                return@launch
+            }
+
             _uiState.value = _uiState.value.copy(updateWalletState = ScreenState.Loading)
 
             try {
@@ -330,7 +461,7 @@ class WalletViewModel(
                     DataSyncManager.notifyDataChanged(DataSyncManager.DataChangeEvent.WalletsUpdated)
                     DataSyncManager.notifyDataChanged(DataSyncManager.DataChangeEvent.WalletSpecificUpdated)
                     // Also notify about user data update for HomeScreen balance refresh
-                    DataSyncManager.notifyDataChanged(DataSyncManager.DataChangeEvent.UserDataUpdated)
+                    DataSyncManager.notifyDataChanged(DataSyncManager.DataChangeEvent.UserDataUpdated())
                 } else {
                     val exception = result.exceptionOrNull() ?: Exception("Failed to update wallet")
                     _uiState.value = _uiState.value.copy(
@@ -400,8 +531,17 @@ data class WalletScreenState(
     val showDeleteDialog: Boolean = false,
     val unsyncedTransactionIds: Set<Int> = emptySet(),
     val unsyncedWalletIds: Set<Int> = emptySet(),
-    val syncStatus: SyncStatus = SyncStatus.IDLE
+    val syncStatus: SyncStatus = SyncStatus.IDLE,
+    val walletMembersState: ScreenState<List<WalletMember>> = ScreenState.Empty,
+    val showShareDialog: Boolean = false,
+    val shareInProgress: Boolean = false,
+    val shareMessage: String? = null
 ) {
+    val walletMembers: List<WalletMember>
+        get() = when (walletMembersState) {
+            is ScreenState.Success -> walletMembersState.data
+            else -> emptyList()
+        }
     // Helper properties for backward compatibility
     val isLoading: Boolean
         get() = walletsState is ScreenState.Loading ||

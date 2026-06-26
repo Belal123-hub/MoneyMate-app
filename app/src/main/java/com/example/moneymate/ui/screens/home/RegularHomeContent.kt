@@ -7,6 +7,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -26,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import com.example.domain.budget.model.Budget
 import com.example.domain.savingsGoal.model.SavingsGoal
 import com.example.domain.transaction.model.TransactionEntity
+import com.example.moneymate.ui.components.DeleteTransactionDialog
 import com.example.moneymate.R
 import com.example.moneymate.ui.components.TransactionsSection
 import kotlin.math.cos
@@ -40,8 +45,10 @@ fun RegularHomeContent(
     currencySymbol: String = "$",
     onSeeAllBudget: () -> Unit,
     onSeeAllTransactions: () -> Unit,
+    onDeleteTransaction: (TransactionEntity) -> Unit,
     isInLazyColumn: Boolean = false
 ) {
+    var transactionPendingDelete by remember { mutableStateOf<TransactionEntity?>(null) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -69,7 +76,19 @@ fun RegularHomeContent(
             unsyncedTransactionIds = unsyncedTransactionIds,
             modifier = Modifier.fillMaxWidth(),
             onSeeAll = onSeeAllTransactions,
+            onDeleteTransaction = { transactionPendingDelete = it },
             isInLazyColumn = isInLazyColumn
+        )
+    }
+
+    transactionPendingDelete?.let { transaction ->
+        DeleteTransactionDialog(
+            transactionName = transaction.name,
+            onConfirm = {
+                onDeleteTransaction(transaction)
+                transactionPendingDelete = null
+            },
+            onDismiss = { transactionPendingDelete = null }
         )
     }
 }

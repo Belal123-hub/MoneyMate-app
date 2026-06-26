@@ -1,8 +1,60 @@
 package com.example.moneymate.utils
 
 object CurrencyUtils {
-    fun getCurrencySymbol(currencyCode: String): String {
+
+    /** Options shown in profile / signup currency pickers (`CODE - symbol`). */
+    /** ISO code to picker label for wallet create/edit dropdowns. */
+    val walletCurrencyOptions: List<Pair<String, String>> by lazy {
+        profileCurrencyOptions.map { label ->
+            parseCurrencyCode(label) to label
+        }
+    }
+
+    val profileCurrencyOptions: List<String> = listOf(
+        "YER - ﷼",
+        "SAR - ﷼",
+        "USD - $",
+        "EUR - €",
+        "GBP - £",
+        "JPY - ¥",
+        "CAD - C$",
+        "AUD - A$",
+        "CHF - CHF",
+        "CNY - ¥",
+        "INR - ₹",
+        "RUB - ₽",
+        "BRL - R$",
+        "MXN - $",
+        "KRW - ₩"
+    )
+
+    /**
+     * ISO code from API value (`YER`) or picker label (`YER - ﷼`).
+     */
+    fun parseCurrencyCode(currency: String?): String {
+        if (currency.isNullOrBlank()) return "USD"
+        val trimmed = currency.trim()
+        if (trimmed.contains(" - ")) {
+            return trimmed.substringBefore(" - ").trim().uppercase()
+        }
+        return trimmed.uppercase()
+    }
+
+    /** Picker label for a stored ISO code. */
+    fun toDisplayFormat(currencyCode: String): String {
+        val code = parseCurrencyCode(currencyCode)
+        val symbol = symbolForCode(code)
+        return "$code - $symbol"
+    }
+
+    fun getCurrencySymbol(currency: String): String {
+        return symbolForCode(parseCurrencyCode(currency))
+    }
+
+    private fun symbolForCode(currencyCode: String): String {
         return when (currencyCode.uppercase()) {
+            "YER" -> "﷼"
+            "SAR" -> "﷼"
             "USD" -> "$"
             "EUR" -> "€"
             "GBP" -> "£"
@@ -16,11 +68,10 @@ object CurrencyUtils {
             "BRL" -> "R$"
             "MXN" -> "$"
             "KRW" -> "₩"
-            // Add more currencies as needed
-            else -> currencyCode // Fallback to the code itself
+            else -> currencyCode.uppercase()
         }
     }
-    
+
     /**
      * Convert amount from source currency to target currency
      * Note: This uses approximate exchange rates. Actual conversion will be done by backend.
@@ -30,36 +81,30 @@ object CurrencyUtils {
         fromCurrency: String,
         toCurrency: String
     ): Double {
-        if (fromCurrency == toCurrency) return amount
-        
-        // Convert to USD first (as base currency)
-        val amountInUSD = amount / getExchangeRateToUSD(fromCurrency)
-        
-        // Convert from USD to target currency
-        return amountInUSD * getExchangeRateToUSD(toCurrency)
+        val fromCode = parseCurrencyCode(fromCurrency)
+        val toCode = parseCurrencyCode(toCurrency)
+        if (fromCode == toCode) return amount
+
+        val amountInUSD = amount / getExchangeRateToUSD(fromCode)
+        return amountInUSD * getExchangeRateToUSD(toCode)
     }
-    
-    /**
-     * Get approximate exchange rate to USD
-     * These are approximate rates and should be updated periodically
-     * Actual conversion will be done by backend with real-time rates
-     */
+
     private fun getExchangeRateToUSD(currencyCode: String): Double {
-        return when (currencyCode.uppercase()) {
+        return when (parseCurrencyCode(currencyCode)) {
             "USD" -> 1.0
-            "EUR" -> 0.92      // 1 EUR ≈ 1.09 USD
-            "GBP" -> 0.79      // 1 GBP ≈ 1.27 USD
-            "JPY" -> 149.0     // 1 USD ≈ 149 JPY
-            "CAD" -> 1.36      // 1 CAD ≈ 0.74 USD
-            "AUD" -> 1.52      // 1 AUD ≈ 0.66 USD
-            "CHF" -> 0.88      // 1 CHF ≈ 1.14 USD
-            "CNY" -> 7.24      // 1 USD ≈ 7.24 CNY
-            "INR" -> 83.0      // 1 USD ≈ 83 INR
-            "RUB" -> 92.0      // 1 USD ≈ 92 RUB
-            "BRL" -> 5.0       // 1 USD ≈ 5 BRL
-            "MXN" -> 17.0      // 1 USD ≈ 17 MXN
-            "KRW" -> 1320.0    // 1 USD ≈ 1320 KRW
-            else -> 1.0        // Fallback
+            "EUR" -> 0.92
+            "GBP" -> 0.79
+            "JPY" -> 149.0
+            "CAD" -> 1.36
+            "AUD" -> 1.52
+            "CHF" -> 0.88
+            "CNY" -> 7.24
+            "INR" -> 83.0
+            "RUB" -> 92.0
+            "BRL" -> 5.0
+            "MXN" -> 17.0
+            "KRW" -> 1320.0
+            else -> 1.0
         }
     }
 }

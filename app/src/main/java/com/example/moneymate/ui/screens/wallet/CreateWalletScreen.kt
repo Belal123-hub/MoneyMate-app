@@ -51,15 +51,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.domain.user.usecase.GetUserUseCase
 import com.example.domain.wallet.model.WalletCreateRequest
 import com.example.moneymate.ui.components.states.FullScreenLoading
+import com.example.moneymate.utils.CurrencyUtils
 import com.example.moneymate.utils.ScreenState
-import org.koin.androidx.compose.koinViewModel
-
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.koin.java.KoinJavaComponent
 @Composable
 fun CreateWalletScreen(
     onBackClick: () -> Unit,
-    viewModel: WalletViewModel = koinViewModel()
+    viewModel: WalletViewModel,
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -122,6 +125,19 @@ private fun CreateWalletFormContent(
     var cardNumber by remember { mutableStateOf("") }
     var selectedCurrency by remember { mutableStateOf("USD") }
     var selectedColor by remember { mutableStateOf("#4D6BFA") }
+
+    val getUserUseCase = remember {
+        KoinJavaComponent.get<GetUserUseCase>(GetUserUseCase::class.java)
+    }
+
+    LaunchedEffect(Unit) {
+        val result = withContext(Dispatchers.IO) { getUserUseCase() }
+        if (result.isSuccess) {
+            selectedCurrency = CurrencyUtils.parseCurrencyCode(
+                result.getOrNull()?.defaultCurrency
+            )
+        }
+    }
 
     WalletForm(
         walletName = walletName,

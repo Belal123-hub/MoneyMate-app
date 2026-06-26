@@ -25,6 +25,7 @@ import com.example.domain.tag.usecase.CreateTagUseCase
 import com.example.domain.tag.usecase.DeleteTagUseCase
 import com.example.domain.tag.usecase.GetTagsUseCase
 import com.example.domain.transaction.usecase.CreateTransactionUseCase
+import com.example.domain.transaction.usecase.DeleteTransactionUseCase
 import com.example.domain.transaction.usecase.CreateTransferUseCase
 import com.example.domain.transaction.usecase.GetAverageSpendingUseCase
 import com.example.domain.transaction.usecase.GetCategorySummaryUseCase
@@ -51,6 +52,10 @@ import com.example.domain.wallet.usecase.GetWalletDetailUseCase
 import com.example.domain.wallet.usecase.GetWalletUseCase
 import com.example.domain.wallet.usecase.GetWalletsUseCase
 import com.example.domain.wallet.usecase.UpdateWalletUseCase
+import com.example.domain.wallet.usecase.ShareWalletUseCase
+import com.example.domain.wallet.usecase.GetWalletMembersUseCase
+import com.example.domain.wallet.usecase.UpdateMemberRoleUseCase
+import com.example.domain.wallet.usecase.RemoveMemberUseCase
 import com.example.domain.savingsGoal.usecase.GetCurrentSavingsGoalUseCase
 import com.example.domain.savingsGoal.usecase.UpdateSavingsGoalUseCase
 import com.example.domain.transaction.usecase.GetSavingsTrendsUseCase
@@ -70,9 +75,14 @@ val useCaseModule = module {
     factory { GetWalletDetailUseCase(get()) }
     factory { DeleteWalletUseCase(get()) }
     factory { UpdateWalletUseCase(get()) }
+    factory { ShareWalletUseCase(get()) }
+    factory { GetWalletMembersUseCase(get()) }
+    factory { UpdateMemberRoleUseCase(get()) }
+    factory { RemoveMemberUseCase(get()) }
     factory { CreateTransferUseCase(get()) }
     factory { GetTransferPreviewUseCase(get()) }
     factory { CreateTransactionUseCase(get()) }
+    factory { DeleteTransactionUseCase(get()) }
     factory { GetTransactionsUseCase(get()) }
     factory { GetUserUseCase(get()) }
     factory { UpdateUserUseCase(get()) }

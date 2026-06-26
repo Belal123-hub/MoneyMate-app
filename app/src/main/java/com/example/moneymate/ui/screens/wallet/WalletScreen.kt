@@ -21,9 +21,11 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.example.moneymate.ui.screens.wallet.component.RoleBadge
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -38,7 +40,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -46,7 +50,9 @@ import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
+import com.example.moneymate.ui.components.DeleteTransactionDialog
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -66,6 +72,7 @@ import com.example.moneymate.ui.navigation.BottomNavigationBar
 import com.example.moneymate.ui.offline.PendingSyncIndicator
 import com.example.moneymate.ui.offline.SyncStatus
 import com.example.moneymate.ui.offline.SyncStatusIndicator
+import com.example.moneymate.ui.offline.displaySyncStatus
 import com.example.moneymate.ui.screens.home.AddRecordButton
 import com.example.moneymate.utils.CurrencyUtils.getCurrencySymbol
 import com.example.moneymate.utils.ScreenState
@@ -84,6 +91,7 @@ fun WalletScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    var transactionPendingDelete by remember { mutableStateOf<TransactionEntity?>(null) }
 
     // Refresh data when screen comes into focus
     DisposableEffect(lifecycleOwner) {
@@ -110,6 +118,10 @@ fun WalletScreen(
         if (uiState.createWalletState is ScreenState.Success) {
             viewModel.resetCreateWalletState()
         }
+    }
+
+    val walletCurrencySymbol = remember(uiState.selectedWallet?.currency) {
+        getCurrencySymbol(uiState.selectedWallet?.currency ?: "USD")
     }
 
     // Extract unique tags from all transactions
@@ -197,7 +209,10 @@ fun WalletScreen(
                             ) {
                                 Spacer(modifier = Modifier.height(24.dp))
                                 SyncStatusIndicator(
-                                    status = if (uiState.walletsState is ScreenState.Loading) SyncStatus.SYNCING else uiState.syncStatus,
+                                    status = displaySyncStatus(
+                                        syncStatus = uiState.syncStatus,
+                                        isContentLoading = uiState.walletsState is ScreenState.Loading
+                                    ),
                                     modifier = Modifier.padding(bottom = 12.dp)
                                 )
 
@@ -235,12 +250,14 @@ fun WalletScreen(
                             ) { transactions ->
                                 TransactionsSection(
                                     transactions = transactions,
+                                    currencySymbol = walletCurrencySymbol,
                                     availableTags = availableTags,
                                     unsyncedTransactionIds = uiState.unsyncedTransactionIds,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = 16.dp),
                                     onSeeAll = { /* Handle see all if needed */ },
+                                    onDeleteTransaction = { transactionPendingDelete = it },
                                     isInLazyColumn = true // PASS THIS
                                 )
                             }
@@ -253,6 +270,19 @@ fun WalletScreen(
                 }
             }
         }
+    }
+
+    transactionPendingDelete?.let { transaction ->
+        DeleteTransactionDialog(
+            transactionName = transaction.name,
+            onConfirm = {
+                viewModel.deleteTransaction(transaction.id) { message ->
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+                transactionPendingDelete = null
+            },
+            onDismiss = { transactionPendingDelete = null }
+        )
     }
 }
 @Composable
@@ -276,8 +306,7 @@ private fun WalletsCardsSection(
 
             // Wallet Cards
             items(wallets) { wallet ->
-                val walletId = wallet.id
-                val pendingSync = walletId != null && walletId in unsyncedWalletIds
+                val pendingSync = !wallet.isSynced || wallet.id in unsyncedWalletIds
                 WalletCardItem(
                     wallet = wallet,
                     isSelected = wallet.id == selectedWallet?.id,
@@ -381,10 +410,12 @@ private fun WalletCardItem(
     }
     val selectInteractionSource = remember { MutableInteractionSource() }
     val bottomInteractionSource = remember { MutableInteractionSource() }
+    val showsShared = wallet.showsSharedUi
+    val isCollaborator = wallet.myRole?.lowercase() in setOf("editor", "viewer")
     Card(
         modifier = Modifier
             .width(271.dp)
-            .height(170.dp),
+            .height(if (showsShared) 190.dp else 170.dp),
         elevation = CardDefaults.cardElevation(
             defaultElevation = 0.dp
         ),
@@ -392,7 +423,11 @@ private fun WalletCardItem(
         colors = CardDefaults.cardColors(
             containerColor = Color.Transparent
         ),
-        border = if (isSelected) BorderStroke(2.dp, Color(0xFF4D6BFA)) else null
+        border = when {
+            isSelected -> BorderStroke(2.dp, Color(0xFF4D6BFA))
+            showsShared -> BorderStroke(1.dp, Color(0xFF93C5FD))
+            else -> null
+        }
     ) {
         Column(
             modifier = Modifier.fillMaxSize()
@@ -402,7 +437,11 @@ private fun WalletCardItem(
                     .fillMaxWidth()
                     .weight(1f)
                     .background(
-                        color = walletColor,
+                        color = if (showsShared) {
+                            walletColor.copy(alpha = 0.92f)
+                        } else {
+                            walletColor
+                        },
                         shape = RoundedCornerShape(
                             topStart = 10.dp,
                             topEnd = 10.dp
@@ -441,25 +480,68 @@ private fun WalletCardItem(
                                     fontWeight = FontWeight.Bold
                                 )
                             }
-                            Text(
-                                text = when (wallet.walletType) {
-                                    "debit_card" -> "VISA"
-                                    "credit_card" -> "VISA"
-                                    else -> wallet.walletType.replace("_", " ").uppercase()
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = textColor,
-                                fontWeight = FontWeight.Medium
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                if (pendingSync) {
+                                    PendingSyncIndicator(
+                                        isSynced = false,
+                                        highContrast = true
+                                    )
+                                }
+                                Text(
+                                    text = when (wallet.walletType) {
+                                        "debit_card" -> "VISA"
+                                        "credit_card" -> "VISA"
+                                        else -> wallet.walletType.replace("_", " ").uppercase()
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = textColor,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
 
-                        Text(
-                            text = formatCardNumber(wallet.cardNumber ?: ""),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = textColor,
-                            fontWeight = FontWeight.Medium,
-                            letterSpacing = 1.sp
-                        )
+                        // Card number and member info in the same row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Bottom
+                        ) {
+                            Text(
+                                text = formatCardNumber(wallet.cardNumber ?: ""),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = textColor,
+                                fontWeight = FontWeight.Medium,
+                                letterSpacing = 1.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+
+                            // Member count on the opposite side of card number
+                            if (showsShared && wallet.memberCount > 0) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    if (isCollaborator && wallet.myRole != null) {
+                                        RoleBadge(
+                                            role = wallet.myRole!!,
+                                            onColoredBackground = true,
+                                            contentColor = textColor
+                                        )
+                                    } else if (wallet.memberCount > 1) {
+                                        Text(
+                                            text = "👤 ${wallet.memberCount}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = textColor.copy(alpha = 0.92f),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                     IconButton(
                         onClick = onOpenDetails,
@@ -472,14 +554,6 @@ private fun WalletCardItem(
                             contentDescription = "Wallet details",
                             tint = textColor,
                             modifier = Modifier.size(18.dp)
-                        )
-                    }
-                    if (pendingSync) {
-                        PendingSyncIndicator(
-                            isSynced = false,
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(top = 32.dp, end = 4.dp)
                         )
                     }
                 }
@@ -513,12 +587,23 @@ private fun WalletCardItem(
                             color = Color(0xFF666666),
                             fontWeight = FontWeight.Medium
                         )
-                        Text(
-                            text = wallet.name,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (showsShared) {
+                                Icon(
+                                    imageVector = Icons.Default.People,
+                                    contentDescription = "Shared",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
+                            Text(
+                                text = if (showsShared) "${wallet.name} (Shared)" else wallet.name,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
                     Column {
                         Text(

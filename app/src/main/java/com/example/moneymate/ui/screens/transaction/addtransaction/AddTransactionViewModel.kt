@@ -20,6 +20,7 @@ import com.example.domain.transaction.usecase.GetTransferPreviewUseCase
 import com.example.domain.wallet.model.Wallet
 import com.example.domain.wallet.usecase.GetWalletsUseCase
 import com.example.moneymate.utils.AppError
+import com.example.moneymate.utils.CurrencyUtils
 import com.example.moneymate.utils.DataSyncManager
 import com.example.moneymate.utils.ErrorHandler
 import com.example.moneymate.utils.FileUtils
@@ -167,14 +168,10 @@ class AddTransactionViewModel(
                     _uiState.value = _uiState.value.copy(
                         walletsState = ScreenState.Success(wallets)
                     )
-                    val firstWallet = wallets.firstOrNull()
-                    if (firstWallet != null) {
-                        _uiState.value = _uiState.value.copy(
-                            selectedWalletId = firstWallet.id ?: 0,
-                            selectedWalletName = firstWallet.name,
-                            destinationWalletId = firstWallet.id ?: 0,
-                            destinationWalletName = firstWallet.name
-                        )
+                    val defaultWallet = wallets.firstOrNull { it.canAddTransactions() }
+                        ?: wallets.firstOrNull()
+                    if (defaultWallet != null) {
+                        applyWalletSelection(defaultWallet, setDestinationToo = true)
                     }
                 } else {
                     _uiState.value = _uiState.value.copy(walletsState = ScreenState.Success(emptyList()))
@@ -257,17 +254,28 @@ class AddTransactionViewModel(
     }
 
     fun onWalletSelected(walletId: Int, walletName: String) {
-        // Find the wallet currency
-        val wallets = when (val state = _uiState.value.walletsState) {
-            is ScreenState.Success -> state.data
-            else -> emptyList()
-        }
+        val wallets = _uiState.value.walletsList()
         val selectedWallet = wallets.find { it.id == walletId }
+        if (selectedWallet != null) {
+            applyWalletSelection(selectedWallet)
+        } else {
+            _uiState.value = _uiState.value.copy(
+                selectedWalletId = walletId,
+                selectedWalletName = walletName,
+                selectedWalletMyRole = null
+            )
+        }
+    }
 
+    private fun applyWalletSelection(wallet: Wallet, setDestinationToo: Boolean = false) {
         _uiState.value = _uiState.value.copy(
-            selectedWalletId = walletId,
-            selectedWalletName = walletName,
-            sourceWalletCurrency = selectedWallet?.currency ?: "USD"
+            selectedWalletId = wallet.id,
+            selectedWalletName = wallet.name,
+            sourceWalletCurrency = wallet.currency,
+            selectedWalletMyRole = wallet.myRole,
+            destinationWalletId = if (setDestinationToo) wallet.id else _uiState.value.destinationWalletId,
+            destinationWalletName = if (setDestinationToo) wallet.name else _uiState.value.destinationWalletName,
+            destinationWalletCurrency = if (setDestinationToo) wallet.currency else _uiState.value.destinationWalletCurrency
         )
     }
 
@@ -466,10 +474,13 @@ class AddTransactionViewModel(
             val expenseAmount = _uiState.value.amount.toDoubleOrNull() ?: 0.0
 
             if (walletBalance < expenseAmount) {
+                val symbol = CurrencyUtils.getCurrencySymbol(
+                    selectedWallet?.currency ?: _uiState.value.sourceWalletCurrency
+                )
                 _uiState.value = _uiState.value.copy(
                     transactionState = ScreenState.Error(
                         AppError.ValidationError(
-                            "Insufficient balance. Your wallet has $${"%.2f".format(walletBalance)} but you're trying to spend $${"%.2f".format(expenseAmount)}"
+                            "Insufficient balance. Your wallet has $symbol${"%.2f".format(walletBalance)} but you're trying to spend $symbol${"%.2f".format(expenseAmount)}"
                         )
                     )
                 )
@@ -597,6 +608,18 @@ class AddTransactionViewModel(
             )
             return false
         }
+
+        val wallets = _uiState.value.walletsList()
+        val sourceWallet = wallets.find { it.id == _uiState.value.selectedWalletId }
+        if (sourceWallet != null && !sourceWallet.canAddTransactions()) {
+            _uiState.value = _uiState.value.copy(
+                transactionState = ScreenState.Error(
+                    AppError.ValidationError("You have view-only access to this wallet")
+                )
+            )
+            return false
+        }
+
         if (_uiState.value.selectedType == TransactionType.TRANSFER) {
             if (_uiState.value.destinationWalletId == 0) {
                 _uiState.value = _uiState.value.copy(
@@ -610,6 +633,15 @@ class AddTransactionViewModel(
                 _uiState.value = _uiState.value.copy(
                     transactionState = ScreenState.Error(
                         AppError.ValidationError("Cannot transfer to the same wallet")
+                    )
+                )
+                return false
+            }
+            val destinationWallet = wallets.find { it.id == _uiState.value.destinationWalletId }
+            if (destinationWallet != null && !destinationWallet.canAddTransactions()) {
+                _uiState.value = _uiState.value.copy(
+                    transactionState = ScreenState.Error(
+                        AppError.ValidationError("You have view-only access to the destination wallet")
                     )
                 )
                 return false
@@ -682,8 +714,24 @@ data class AddTransactionState(
     val destinationWalletCurrency: String = "USD",
     val transferPreview: TransferPreview? = null,
     val isLoadingPreview: Boolean = false,
-    val syncStatus: SyncStatus = SyncStatus.IDLE
-)
+    val syncStatus: SyncStatus = SyncStatus.IDLE,
+    val selectedWalletMyRole: String? = null
+) {
+    fun walletsList(): List<Wallet> = when (val state = walletsState) {
+        is ScreenState.Success -> state.data
+        else -> emptyList()
+    }
+
+    val canAddTransactions: Boolean
+        get() {
+            if (selectedWalletId == 0) return false
+            val wallet = walletsList().find { it.id == selectedWalletId } ?: return false
+            return wallet.canAddTransactions()
+        }
+
+    val isViewOnlyWallet: Boolean
+        get() = !canAddTransactions
+}
 
 enum class TransactionType(val displayName: String, val apiValue: String) {
     INCOME("INCOME", "income"),

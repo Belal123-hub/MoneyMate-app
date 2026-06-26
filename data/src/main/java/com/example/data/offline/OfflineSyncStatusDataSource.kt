@@ -17,4 +17,7 @@ class OfflineSyncStatusDataSource(
 
     fun observeUnsyncedWalletIds(): Flow<Set<Int>> =
         walletDao.observeUnsyncedWallets().map { list -> list.map { it.id }.toSet() }
+
+    suspend fun getUnsyncedWalletIds(): Set<Int> =
+        walletDao.getUnsyncedWallets().map { it.id }.toSet()
 }
