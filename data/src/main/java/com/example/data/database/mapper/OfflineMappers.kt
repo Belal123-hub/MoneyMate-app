@@ -5,11 +5,20 @@ import com.example.data.database.entity.GoalEntity
 import com.example.data.database.entity.TagEntity
 import com.example.data.database.entity.TransactionEntity
 import com.example.data.database.entity.WalletEntity
+import com.example.data.database.entity.WalletMemberEntity
+import com.example.data.network.wallet.model.WalletMemberResponse
 import com.example.domain.category.model.Category
 import com.example.domain.goal.model.Goal
 import com.example.domain.tag.model.Tag
 import com.example.domain.transaction.model.TransactionEntity as DomainTransactionEntity
 import com.example.domain.wallet.model.Wallet
+import com.example.domain.wallet.model.WalletMember
+import com.example.domain.wallet.model.WalletCreateRequest
+import com.example.domain.wallet.model.WalletUpdateRequest
+
+// ============================================================
+// TRANSACTION MAPPERS
+// ============================================================
 
 fun DomainTransactionEntity.toLocalEntity(
     updatedAt: Long = System.currentTimeMillis(),
@@ -46,10 +55,11 @@ fun TransactionEntity.toDomain(): DomainTransactionEntity = DomainTransactionEnt
     receiptUrl = receiptUrl
 )
 
-fun Wallet.toLocalEntity(
-    updatedAt: Long = System.currentTimeMillis(),
-    isSynced: Boolean = true
-): WalletEntity = WalletEntity(
+// ============================================================
+// WALLET MAPPERS (ADD THESE - THEY ARE MISSING!)
+// ============================================================
+
+fun WalletEntity.toDomain(memberCount: Int = 0): Wallet = Wallet(
     id = id,
     name = name,
     currency = currency,
@@ -59,23 +69,92 @@ fun Wallet.toLocalEntity(
     color = color,
     balance = balance,
     userId = userId,
+    ownerUserId = ownerUserId,
+    isShared = isShared,
+    myRole = myRole,
+    memberCount = memberCount,
     createdAt = createdAt,
-    updatedAt = updatedAt,
     isSynced = isSynced
 )
 
-fun WalletEntity.toDomain(): Wallet = Wallet(
+fun Wallet.toLocalEntity(
+    updatedAt: Long = System.currentTimeMillis(),
+    isSynced: Boolean = true
+): WalletEntity {
+    return WalletEntity(
+        id = this.id,
+        name = this.name,
+        currency = this.currency,
+        walletType = this.walletType,
+        initialBalance = this.initialBalance,
+        cardNumber = this.cardNumber,
+        color = this.color,
+        balance = this.balance,
+        userId = this.userId,
+        ownerUserId = this.ownerUserId ?: 0,
+        isShared = this.isShared,
+        myRole = this.myRole,
+        createdAt = this.createdAt,
+        updatedAt = updatedAt,
+        isSynced = isSynced
+    )
+}
+
+// ============================================================
+// WALLET MEMBER MAPPERS
+// ============================================================
+
+fun WalletMemberEntity.toDomain(): WalletMember = WalletMember(
     id = id,
-    name = name,
-    currency = currency,
-    walletType = walletType,
-    initialBalance = initialBalance,
-    cardNumber = cardNumber,
-    color = color,
-    balance = balance,
+    walletId = walletId,
     userId = userId,
-    createdAt = createdAt
+    userEmail = userEmail,
+    userName = userName,
+    role = role,
+    joinedAt = joinedAt
 )
+
+fun WalletMember.toLocalEntity(
+    walletId: Int,
+    isSynced: Boolean = true
+): WalletMemberEntity = WalletMemberEntity(
+    id = id,
+    walletId = walletId,
+    userId = userId,
+    userEmail = userEmail,
+    userName = userName,
+    role = role,
+    joinedAt = joinedAt,
+    isSynced = isSynced
+)
+
+fun WalletMemberResponse.toLocalEntity(
+    walletId: Int,
+    isSynced: Boolean = true
+): WalletMemberEntity = WalletMemberEntity(
+    id = this.userId,
+    walletId = walletId,
+    userId = this.userId,
+    userEmail = this.userEmail,
+    userName = this.userName,
+    role = this.role,
+    joinedAt = this.joinedAt,
+    isSynced = isSynced
+)
+
+fun WalletMemberResponse.toDomain(walletId: Int): WalletMember = WalletMember(
+    id = this.userId,
+    walletId = walletId,
+    userId = this.userId,
+    userEmail = this.userEmail,
+    userName = this.userName,
+    role = this.role,
+    joinedAt = this.joinedAt
+)
+
+// ============================================================
+// CATEGORY MAPPERS
+// ============================================================
 
 fun Category.toLocalEntity(
     updatedAt: Long = System.currentTimeMillis(),
@@ -99,6 +178,10 @@ fun CategoryEntity.toDomain(): Category = Category(
     icon = icon,
     userId = userId
 )
+
+// ============================================================
+// GOAL MAPPERS
+// ============================================================
 
 fun Goal.toLocalEntity(
     updatedAt: Long = System.currentTimeMillis(),
@@ -129,6 +212,10 @@ fun GoalEntity.toDomain(): Goal = Goal(
     currency = currency
 )
 
+// ============================================================
+// TAG MAPPERS
+// ============================================================
+
 fun Tag.toLocalEntity(
     updatedAt: Long = System.currentTimeMillis(),
     isSynced: Boolean = true
@@ -146,8 +233,12 @@ fun TagEntity.toDomain(): Tag = Tag(
     userId = userId ?: 0
 )
 
-fun toDomainTransaction(entity: TransactionEntity): com.example.domain.transaction.model.TransactionEntity {
-    return com.example.domain.transaction.model.TransactionEntity(
+// ============================================================
+// HELPER
+// ============================================================
+
+fun toDomainTransaction(entity: TransactionEntity): DomainTransactionEntity {
+    return DomainTransactionEntity(
         id = entity.id,
         userId = entity.userId,
         name = entity.name,

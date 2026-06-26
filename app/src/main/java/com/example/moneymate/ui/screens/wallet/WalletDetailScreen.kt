@@ -52,6 +52,8 @@ import com.example.moneymate.R
 import com.example.moneymate.ui.components.states.FullScreenError
 import com.example.moneymate.ui.components.states.FullScreenLoading
 import com.example.moneymate.utils.CurrencyUtils.getCurrencySymbol
+import com.example.moneymate.ui.screens.wallet.component.ShareWalletDialog
+import com.example.moneymate.ui.screens.wallet.component.WalletMemberList
 import org.koin.androidx.compose.koinViewModel
 
 @Composable
@@ -136,14 +138,28 @@ fun WalletDetailScreen(
                 ) {
                     when (val walletDetailState = uiState.walletDetailState) {
                         is com.example.moneymate.utils.ScreenState.Success -> {
-                            val (income, expense) = remember(uiState.transactions, walletId) {
-                                viewModel.getWalletIncomeExpense(walletId)
+                            val (income, expense) = remember(uiState.transactionsState) {
+                                when (val txState = uiState.transactionsState) {
+                                    is com.example.moneymate.utils.ScreenState.Success ->
+                                        calculateIncomeExpense(txState.data)
+                                    else -> 0.0 to 0.0
+                                }
                             }
 
                             WalletDetailContent(
                                 walletDetail = walletDetailState.data,
+                                walletId = walletId,
+                                members = uiState.walletMembers,
+                                canManageMembers = walletDetailState.data.canManageMembers(),
                                 onEditWallet = onEditWallet,
                                 onDeleteWallet = { viewModel.showDeleteConfirmation() },
+                                onInviteMember = { viewModel.showShareWalletDialog() },
+                                onRoleChange = { userId, role ->
+                                    viewModel.updateMemberRole(walletId, userId, role)
+                                },
+                                onRemoveMember = { userId ->
+                                    viewModel.removeMember(walletId, userId)
+                                },
                                 income = income,
                                 expense = expense,
                                 modifier = Modifier
@@ -175,6 +191,23 @@ fun WalletDetailScreen(
                         DeleteConfirmationDialog(
                             onConfirm = { viewModel.deleteWallet(walletId) },
                             onDismiss = { viewModel.dismissDeleteConfirmation() }
+                        )
+                    }
+                    if (uiState.showShareDialog) {
+                        ShareWalletDialog(
+                            onShare = { email, role ->
+                                viewModel.shareWallet(walletId, email, role)
+                            },
+                            onDismiss = { viewModel.dismissShareWalletDialog() }
+                        )
+                    }
+                    uiState.shareMessage?.let { msg ->
+                        Text(
+                            text = msg,
+                            color = Color(0xFF22C55E),
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(16.dp)
                         )
                     }
                 }
@@ -217,10 +250,16 @@ private fun WalletDetailTopBar(
 @Composable
 private fun WalletDetailContent(
     walletDetail: Wallet,
+    walletId: Int,
+    members: List<com.example.domain.wallet.model.WalletMember>,
+    canManageMembers: Boolean,
     income: Double,
     expense: Double,
     onDeleteWallet: () -> Unit,
     onEditWallet: (Int) -> Unit,
+    onInviteMember: () -> Unit,
+    onRoleChange: (userId: Int, role: String) -> Unit,
+    onRemoveMember: (userId: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -238,9 +277,19 @@ private fun WalletDetailContent(
             onEditWallet = onEditWallet
         )
 
+        MembersSection(
+            members = members,
+            canManageMembers = canManageMembers,
+            currentUserRole = walletDetail.myRole,
+            onInviteMember = onInviteMember,
+            onRoleChange = onRoleChange,
+            onRemoveMember = onRemoveMember
+        )
+
         Spacer(modifier = Modifier.height(32.dp))
 
-        // Delete Button
+        // Delete Button — only for wallet owners / admins
+        if (canManageMembers) {
         Button(
             onClick = onDeleteWallet,
             modifier = Modifier.fillMaxWidth(),
@@ -250,9 +299,53 @@ private fun WalletDetailContent(
         ) {
             Text("Delete")
         }
+        }
 
         // Add extra space at the bottom for better scrolling
         Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun MembersSection(
+    members: List<com.example.domain.wallet.model.WalletMember>,
+    canManageMembers: Boolean,
+    currentUserRole: String?,
+    onInviteMember: () -> Unit,
+    onRoleChange: (userId: Int, role: String) -> Unit,
+    onRemoveMember: (userId: Int) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "MEMBERS (${members.size})",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+                if (canManageMembers) {
+                    Button(onClick = onInviteMember) {
+                        Text("+ Invite")
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            WalletMemberList(
+                members = members,
+                currentUserRole = currentUserRole,
+                canManage = canManageMembers,
+                onRoleChange = onRoleChange,
+                onRemoveMember = onRemoveMember
+            )
+        }
     }
 }
 
@@ -387,15 +480,17 @@ private fun WalletInfoCard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFF666666)
                 )
-                IconButton(
-                    onClick = { walletDetail.id?.let { onEditWallet(it) } },
-                    modifier = Modifier.size(24.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_edit),
-                        contentDescription = "Edit wallet",
-                        modifier = Modifier.size(20.dp)
-                    )
+                if (walletDetail.canEditWallet()) {
+                    IconButton(
+                        onClick = { walletDetail.id?.let { onEditWallet(it) } },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_edit),
+                            contentDescription = "Edit wallet",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
 
@@ -465,7 +560,7 @@ private fun IncomeExpenseItem(
         ) {
             Icon(
                 painter = painterResource(
-                    if (isIncome) com.example.domain.R.drawable.up else com.example.domain.R.drawable.down
+                    if (isIncome) R.drawable.ic_saving else com.example.domain.R.drawable.down
                 ),
                 contentDescription = if (isIncome) "Income" else "Expense",
                 tint = if (isIncome) Color(0xFF10B981) else Color(0xFFEF4444),

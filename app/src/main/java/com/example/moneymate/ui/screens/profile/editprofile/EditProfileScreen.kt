@@ -1,6 +1,5 @@
 package com.example.moneymate.ui.screens.profile.editprofile
 
-import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -23,14 +22,12 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil.compose.AsyncImage
-import coil.compose.rememberAsyncImagePainter
 import com.example.moneymate.R
 import com.example.moneymate.ui.components.CurrencyDropdown
+import com.example.moneymate.ui.components.ProfileAvatar
 import com.example.moneymate.ui.screens.profile.editprofile.component.CustomEditTextField
 import com.example.moneymate.ui.screens.profile.editprofile.component.FormLabel
 import com.example.moneymate.utils.AppError
-import com.example.moneymate.utils.Config
 import org.koin.androidx.compose.koinViewModel
 import java.io.File
 import java.io.FileOutputStream
@@ -49,6 +46,7 @@ fun EditProfileScreen(
 
     // Track if we're specifically uploading an avatar
     var isUploadingAvatar by remember { mutableStateOf(false) }
+    var localAvatarPath by remember { mutableStateOf<String?>(null) }
 
     // Create a temporary file for storing the selected image
     val tempAvatarFile = remember {
@@ -65,16 +63,10 @@ fun EditProfileScreen(
         onResult = { uri ->
             uri?.let { selectedUri ->
                 try {
-                    // Take persistable URI permission
-                    context.contentResolver.takePersistableUriPermission(
-                        selectedUri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
-
-                    // Convert content URI to file path
                     isUploadingAvatar = true
                     convertUriToFile(context, selectedUri, tempAvatarFile) { success ->
                         if (success) {
+                            localAvatarPath = tempAvatarFile.absolutePath
                             viewModel.uploadAvatar(tempAvatarFile.absolutePath)
                         } else {
                             isUploadingAvatar = false
@@ -97,7 +89,7 @@ fun EditProfileScreen(
         }
     )
 
-    // Reset uploading state when loading completes
+    // Reset uploading state when loading completes; keep local preview until remote URL is shown
     LaunchedEffect(uiState.isLoading) {
         if (!uiState.isLoading) {
             isUploadingAvatar = false
@@ -204,51 +196,19 @@ fun EditProfileScreen(
                         }
                     }
                 } else {
-                    // Normal clickable avatar
                     Box(
-                        modifier = Modifier
-                            .size(90.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF333333))
-                            .clickable(
-                                enabled = !uiState.isLoading,
-                                onClick = {
-                                    // Open gallery to select new avatar
-                                    galleryLauncher.launch("image/*")
-                                }
-                            ),
-                        contentAlignment = Alignment.Center
+                        modifier = Modifier.clickable(
+                            enabled = !uiState.isLoading,
+                            onClick = { galleryLauncher.launch("image/*") }
+                        )
                     ) {
-                        // Show avatar image if available, otherwise show initials
-                        uiState.user?.avatarUrl?.let { avatarUrl ->
-                            val fullAvatarUrl = Config.buildImageUrl(avatarUrl)
-
-                            AsyncImage(
-                                model = fullAvatarUrl,
-                                contentDescription = "Profile Avatar",
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(CircleShape),
-                                placeholder = rememberAsyncImagePainter(
-                                    model = R.drawable.ic_person
-                                ),
-                                error = rememberAsyncImagePainter(
-                                    model = R.drawable.ic_person
-                                )
-                            )
-                        } ?: run {
-                            // Display user initials if no avatar
-                            val initials = uiState.user?.fullName?.let { name ->
-                                name.split(" ").take(2).joinToString("") { it.firstOrNull()?.toString() ?: "" }
-                            } ?: "U"
-
-                            Text(
-                                text = initials,
-                                color = Color.White,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        ProfileAvatar(
+                            avatarUrl = uiState.user?.avatarUrl,
+                            fullName = uiState.user?.fullName,
+                            localFilePath = localAvatarPath,
+                            modifier = Modifier.size(90.dp),
+                            initialsFontSize = 20.sp
+                        )
                     }
                 }
 

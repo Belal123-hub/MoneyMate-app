@@ -22,7 +22,7 @@ object DataSyncManager {
         object TagsUpdated : DataChangeEvent()
         object BudgetUpdated : DataChangeEvent()
         object CategoryLimitsUpdated : DataChangeEvent()
-        object UserDataUpdated : DataChangeEvent()
+        data class UserDataUpdated(val avatarUrl: String? = null) : DataChangeEvent()
         object GoalsUpdated : DataChangeEvent()
 
         // Add more event types as needed

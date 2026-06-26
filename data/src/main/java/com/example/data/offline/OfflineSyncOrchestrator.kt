@@ -10,9 +10,11 @@ import com.example.data.database.dao.SyncMetadataDao
 import com.example.data.database.dao.TagDao
 import com.example.data.database.dao.TransactionDao
 import com.example.data.database.dao.WalletDao
+import com.example.data.database.dao.WalletMemberDao
 import com.example.data.database.entity.MonthlySavingsGoalEntity
 import com.example.data.database.entity.PendingOperation
 import com.example.data.database.entity.SyncMetadata
+import com.example.data.database.entity.TransactionEntity
 import com.example.data.database.entity.WalletEntity
 import com.example.data.database.entity.GoalEntity
 import com.example.data.database.mapper.toLocalEntity
@@ -22,7 +24,12 @@ import com.example.data.network.goal.model.GoalResponse
 import com.example.data.network.goal.model.GoalUpdateRequest
 import com.example.data.network.goal.model.toDomain
 import com.example.data.network.sync.OfflineSyncApi
+import com.example.data.network.transaction.TransactionApi
+import com.example.data.network.transaction.model.TransactionCreateRequest
+import com.example.data.network.transaction.model.TransactionDto
 import com.example.data.network.wallet.WalletApi
+import com.example.data.network.wallet.model.WalletMemberRoleUpdateRequest
+import com.example.data.network.wallet.model.WalletShareRequest
 import com.example.data.network.sync.model.PendingOperationPayload
 import com.example.data.network.sync.model.SyncOperationResult
 import com.example.data.network.sync.model.SyncPushRequest
@@ -33,15 +40,20 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.Json.Default.parseToJsonElement
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 class OfflineSyncOrchestrator(
     private val syncApi: OfflineSyncApi,
+    private val transactionApi: TransactionApi,
     private val walletApi: WalletApi,
     private val goalApi: GoalApiService,
     private val transactionDao: TransactionDao,
     private val walletDao: WalletDao,
+    private val walletMemberDao: WalletMemberDao,
     private val categoryDao: CategoryDao,
     private val goalDao: GoalDao,
     private val tagDao: TagDao,
@@ -148,6 +160,7 @@ class OfflineSyncOrchestrator(
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
     private suspend fun pushPendingOperations() {
         val operations = pendingOperationDao.getAll()
         if (operations.isEmpty()) {
@@ -160,8 +173,11 @@ class OfflineSyncOrchestrator(
                 "then api/sync/push for the rest)"
         )
 
-        val afterWalletDeletes = processWalletDeletesViaRest(operations)
-        val afterGoalDeletes = processGoalDeletesViaRest(afterWalletDeletes)
+        val afterTransactionDeletes = processTransactionDeletesViaRest(operations)
+        val afterTransactionCreates = processTransactionCreatesViaRest(afterTransactionDeletes)
+        val afterWalletDeletes = processWalletDeletesViaRest(afterTransactionCreates)
+        val afterWalletShareOps = processWalletShareOpsViaRest(afterWalletDeletes)
+        val afterGoalDeletes = processGoalDeletesViaRest(afterWalletShareOps)
         val afterWalletCreates = processWalletCreatesViaRest(afterGoalDeletes)
         val afterGoalCreates = processGoalCreatesViaRest(afterWalletCreates)
         val forBatch = processGoalUpdatesViaRest(afterGoalCreates)
@@ -243,6 +259,8 @@ class OfflineSyncOrchestrator(
                 remapSuccessfulWalletCreatesAfterPush(repairedOperations, response, aligned, now)
             val tempGoalCreateRemap =
                 remapSuccessfulGoalCreatesAfterPush(repairedOperations, response, aligned, now)
+            val tempTransactionCreateRemap =
+                remapSuccessfulTransactionCreatesAfterPush(repairedOperations, response, aligned, now)
 
             val effectiveSuccessfulOps = aligned.mapNotNull { (op, res) ->
                 if (res?.status != "success") return@mapNotNull null
@@ -260,12 +278,26 @@ class OfflineSyncOrchestrator(
                 ) {
                     return@mapNotNull null
                 }
+                if (op.resourceType.equals("transaction", ignoreCase = true) &&
+                    op.operationType.equals("create", ignoreCase = true) &&
+                    op.resourceId < 0 &&
+                    !tempTransactionCreateRemap.containsKey(op.resourceId)
+                ) {
+                    return@mapNotNull null
+                }
                 op
             }
 
             val transactionIds = effectiveSuccessfulOps
                 .filter { it.resourceType.equals("transaction", ignoreCase = true) }
-                .map { it.resourceId }
+                .mapNotNull { op ->
+                    when {
+                        op.operationType.equals("create", ignoreCase = true) && op.resourceId < 0 ->
+                            tempTransactionCreateRemap[op.resourceId] ?: op.resourceId.takeIf { it > 0 }
+                        else -> op.resourceId
+                    }
+                }
+                .filter { it > 0 }
             val goalIds = effectiveSuccessfulOps.mapNotNull { op ->
                 if (!op.resourceType.equals("goal", ignoreCase = true)) return@mapNotNull null
                 if (op.operationType.equals("delete", ignoreCase = true)) return@mapNotNull null
@@ -300,6 +332,14 @@ class OfflineSyncOrchestrator(
             }
 
             applyCurrentSavingsGoalFromPushResponse(response, now)
+
+            if (response.transactions.isNotEmpty()) {
+                reconcilePendingTransactionCreatesAfterPull(response.transactions, now)
+                transactionDao.upsertTransactions(
+                    response.transactions.map { it.toEntity().toLocalEntity(now, true) }
+                )
+                println("📦 OFFLINE_SYNC: Upserted ${response.transactions.size} transaction(s) from push response")
+            }
 
             if (response.wallets.isNotEmpty()) {
                 reconcilePendingWalletCreatesAfterPull(response.wallets, now)
@@ -348,6 +388,13 @@ class OfflineSyncOrchestrator(
                         pendingOperationDao.incrementRetryCount(op.id)
                         retried++
                     }
+                    op.resourceType.equals("transaction", ignoreCase = true) &&
+                        op.operationType.equals("create", ignoreCase = true) &&
+                        op.resourceId < 0 &&
+                        !tempTransactionCreateRemap.containsKey(op.resourceId) -> {
+                        pendingOperationDao.incrementRetryCount(op.id)
+                        retried++
+                    }
                     else -> {
                         pendingOperationDao.removeById(op.id)
                         removed++
@@ -383,10 +430,16 @@ class OfflineSyncOrchestrator(
             val goalsCount = body.goals.size
             val categoriesCount = body.categories.size
             val tagsCount = body.tags.size
+            val walletMembersCount = body.walletMembers.size
 
-            println("📥 OFFLINE_SYNC: Pull response - ${transactionsCount} transactions, ${walletsCount} wallets, ${goalsCount} goals, ${categoriesCount} categories, ${tagsCount} tags")
+            println(
+                "📥 OFFLINE_SYNC: Pull response - ${transactionsCount} transactions, ${walletsCount} wallets, " +
+                    "${goalsCount} goals, ${categoriesCount} categories, ${tagsCount} tags, " +
+                    "${walletMembersCount} wallet_members"
+            )
 
             if (transactionsCount > 0) {
+                reconcilePendingTransactionCreatesAfterPull(body.transactions, now)
                 transactionDao.upsertTransactions(body.transactions.map { it.toEntity().toLocalEntity(now, true) })
                 println("📥 OFFLINE_SYNC: Updated ${transactionsCount} transactions")
             }
@@ -418,6 +471,12 @@ class OfflineSyncOrchestrator(
             if (tagsCount > 0) {
                 tagDao.upsertTags(body.tags.map { it.toEntity().toLocalEntity(now, true) })
                 println("📥 OFFLINE_SYNC: Updated ${tagsCount} tags")
+            }
+            if (walletMembersCount > 0) {
+                walletMemberDao.upsertMembers(
+                    body.walletMembers.map { it.toLocalEntity(isSynced = true) }
+                )
+                println("📥 OFFLINE_SYNC: Updated $walletMembersCount wallet member(s)")
             }
 
             println("📥 OFFLINE_SYNC: Pull completed successfully")
@@ -662,6 +721,245 @@ class OfflineSyncOrchestrator(
     }
 
     /**
+     * Wallet share / member mutations use dedicated REST endpoints before batch sync.
+     */
+    private suspend fun processWalletShareOpsViaRest(operations: List<PendingOperation>): List<PendingOperation> {
+        val forBatch = mutableListOf<PendingOperation>()
+        for (op in operations) {
+            if (!op.resourceType.equals("wallet", ignoreCase = true)) {
+                forBatch.add(op)
+                continue
+            }
+            when (op.operationType.lowercase()) {
+                "share_wallet" -> {
+                    if (op.resourceId <= 0) {
+                        pendingOperationDao.removeById(op.id)
+                        continue
+                    }
+                    val payloadObj = runCatching {
+                        parseToJsonElement(op.payload ?: "{}").jsonObject
+                    }.getOrNull()
+                    if (payloadObj == null) {
+                        pendingOperationDao.incrementRetryCount(op.id)
+                        forBatch.add(op)
+                        continue
+                    }
+                    val email = payloadObj["email"]?.jsonPrimitive?.content
+                    val role = payloadObj["role"]?.jsonPrimitive?.content ?: "viewer"
+                    if (email.isNullOrBlank()) {
+                        pendingOperationDao.removeById(op.id)
+                        continue
+                    }
+                    try {
+                        val resp = walletApi.shareWallet(
+                            op.resourceId,
+                            WalletShareRequest(email = email, role = role)
+                        )
+                        if (resp.isSuccessful) {
+                            resp.body()?.let { m ->
+                                walletMemberDao.upsertMember(m.toLocalEntity(walletId = op.resourceId, isSynced = true))
+                            }
+                            pendingOperationDao.removeById(op.id)
+                            println("✅ OFFLINE_SYNC: REST share_wallet walletId=${op.resourceId}")
+                        } else {
+                            pendingOperationDao.incrementRetryCount(op.id)
+                            forBatch.add(op)
+                        }
+                    } catch (e: Exception) {
+                        pendingOperationDao.incrementRetryCount(op.id)
+                        forBatch.add(op)
+                        println("⚠️ OFFLINE_SYNC: REST share_wallet failed: ${e.message}")
+                    }
+                }
+                "update_member_role" -> {
+                    val payloadObj = runCatching {
+                        parseToJsonElement(op.payload ?: "{}").jsonObject
+                    }.getOrNull()
+                    if (payloadObj == null) {
+                        pendingOperationDao.incrementRetryCount(op.id)
+                        forBatch.add(op)
+                        continue
+                    }
+                    val userId = payloadObj["userId"]?.jsonPrimitive?.content?.toIntOrNull()
+                    val role = payloadObj["role"]?.jsonPrimitive?.content
+                    if (userId == null || role.isNullOrBlank()) {
+                        pendingOperationDao.removeById(op.id)
+                        continue
+                    }
+                    try {
+                        val resp = walletApi.updateMemberRole(
+                            op.resourceId,
+                            userId,
+                            WalletMemberRoleUpdateRequest(role = role)
+                        )
+                        if (resp.isSuccessful) {
+                            walletMemberDao.updateMemberRole(op.resourceId, userId, role)
+                            pendingOperationDao.removeById(op.id)
+                            println("✅ OFFLINE_SYNC: REST update_member_role walletId=${op.resourceId}")
+                        } else {
+                            pendingOperationDao.incrementRetryCount(op.id)
+                            forBatch.add(op)
+                        }
+                    } catch (e: Exception) {
+                        pendingOperationDao.incrementRetryCount(op.id)
+                        forBatch.add(op)
+                    }
+                }
+                "remove_member" -> {
+                    val payloadObj = runCatching {
+                        parseToJsonElement(op.payload ?: "{}").jsonObject
+                    }.getOrNull()
+                    if (payloadObj == null) {
+                        pendingOperationDao.incrementRetryCount(op.id)
+                        forBatch.add(op)
+                        continue
+                    }
+                    val userId = payloadObj["userId"]?.jsonPrimitive?.content?.toIntOrNull()
+                    if (userId == null) {
+                        pendingOperationDao.removeById(op.id)
+                        continue
+                    }
+                    try {
+                        val resp = walletApi.removeMember(op.resourceId, userId)
+                        if (resp.isSuccessful || resp.code() == 404) {
+                            walletMemberDao.deleteMember(op.resourceId, userId)
+                            pendingOperationDao.removeById(op.id)
+                            println("✅ OFFLINE_SYNC: REST remove_member walletId=${op.resourceId}")
+                        } else {
+                            pendingOperationDao.incrementRetryCount(op.id)
+                            forBatch.add(op)
+                        }
+                    } catch (e: Exception) {
+                        pendingOperationDao.incrementRetryCount(op.id)
+                        forBatch.add(op)
+                    }
+                }
+                else -> forBatch.add(op)
+            }
+        }
+        return forBatch
+    }
+
+    /**
+     * Offline transaction creates should hit POST /api/transactions/ so the client can replace
+     * the temp negative id with the server id (avoids duplicate rows after sync).
+     */
+    private suspend fun processTransactionCreatesViaRest(
+        operations: List<PendingOperation>
+    ): List<PendingOperation> {
+        val forBatch = mutableListOf<PendingOperation>()
+        for (op in operations) {
+            val isTransactionCreate =
+                op.resourceType.equals("transaction", ignoreCase = true) &&
+                    op.operationType.equals("create", ignoreCase = true) &&
+                    op.resourceId < 0
+            if (!isTransactionCreate) {
+                forBatch.add(op)
+                continue
+            }
+            val local = transactionDao.getTransactionByTempId(op.resourceId)
+            if (local == null) {
+                println(
+                    "⚠️ OFFLINE_SYNC: transaction create pending but Room row missing " +
+                        "resourceId=${op.resourceId}, removing pending op id=${op.id}"
+                )
+                pendingOperationDao.removeById(op.id)
+                continue
+            }
+            val request = TransactionCreateRequest(
+                name = local.name,
+                amount = local.amount,
+                type = local.type,
+                transactionDate = local.transactionDate,
+                walletId = local.walletId,
+                categoryId = local.categoryId,
+                note = local.note,
+                tags = local.tags
+            )
+            try {
+                println(
+                    "🌐 OFFLINE_SYNC: POST api/transactions for offline create " +
+                        "tempTxId=${op.resourceId} pendingOpDbId=${op.id} name=${local.name}"
+                )
+                val now = System.currentTimeMillis()
+                val response = transactionApi.createTransaction(request)
+                if (!response.isSuccessful) {
+                    pendingOperationDao.incrementRetryCount(op.id)
+                    forBatch.add(op)
+                    println(
+                        "⚠️ OFFLINE_SYNC: REST transaction create failed temp=${op.resourceId} " +
+                            "code=${response.code()}; keeping for api/sync/push"
+                    )
+                    continue
+                }
+                val created = response.body()
+                if (created == null) {
+                    pendingOperationDao.incrementRetryCount(op.id)
+                    forBatch.add(op)
+                    continue
+                }
+                remapLocalTransactionToServerId(op.resourceId, created.id, now, created)
+                pendingOperationDao.removeById(op.id)
+                println(
+                    "✅ OFFLINE_SYNC: REST transaction create temp=${op.resourceId} -> serverId=${created.id}"
+                )
+            } catch (e: Exception) {
+                pendingOperationDao.incrementRetryCount(op.id)
+                forBatch.add(op)
+                println(
+                    "⚠️ OFFLINE_SYNC: REST transaction create error temp=${op.resourceId}: ${e.message}"
+                )
+            }
+        }
+        return forBatch
+    }
+
+    /**
+     * Transaction deletes must hit DELETE /api/transactions/{transaction_id}.
+     */
+    private suspend fun processTransactionDeletesViaRest(
+        operations: List<PendingOperation>
+    ): List<PendingOperation> {
+        val forBatch = mutableListOf<PendingOperation>()
+        for (op in operations) {
+            val isTransactionDelete =
+                op.resourceType.equals("transaction", ignoreCase = true) &&
+                    op.operationType.equals("delete", ignoreCase = true)
+            if (!isTransactionDelete) {
+                forBatch.add(op)
+                continue
+            }
+            if (op.resourceId <= 0) {
+                pendingOperationDao.removeById(op.id)
+                println("⚠️ OFFLINE_SYNC: dropped transaction delete for temp id=${op.resourceId}")
+                continue
+            }
+            try {
+                val resp = transactionApi.deleteTransaction(op.resourceId)
+                val ok = resp.isSuccessful || resp.code() == 404
+                if (ok) {
+                    transactionDao.deleteTransactionById(op.resourceId)
+                    pendingOperationDao.removeById(op.id)
+                    println(
+                        "✅ OFFLINE_SYNC: Transaction delete via REST id=${op.resourceId} code=${resp.code()}"
+                    )
+                } else {
+                    pendingOperationDao.incrementRetryCount(op.id)
+                    forBatch.add(op)
+                    println(
+                        "⚠️ OFFLINE_SYNC: Transaction REST delete failed id=${op.resourceId} code=${resp.code()}"
+                    )
+                }
+            } catch (e: Exception) {
+                pendingOperationDao.incrementRetryCount(op.id)
+                forBatch.add(op)
+                println("⚠️ OFFLINE_SYNC: Transaction REST delete error id=${op.resourceId}: ${e.message}")
+            }
+        }
+        return forBatch
+    }
+
+    /**
      * Wallet deletes must hit DELETE /api/wallets/{id}. The batch sync endpoint may not apply them.
      */
     private suspend fun processWalletDeletesViaRest(operations: List<PendingOperation>): List<PendingOperation> {
@@ -847,10 +1145,167 @@ class OfflineSyncOrchestrator(
                                     op.operationType.equals("create", ignoreCase = true) &&
                                     op.resourceId < 0 &&
                                     r.status == "success"
+                                ) ||
+                            (
+                                op.resourceType.equals("transaction", ignoreCase = true) &&
+                                    op.operationType.equals("create", ignoreCase = true) &&
+                                    op.resourceId < 0 &&
+                                    r.status == "success"
                                 )
                         )
             }
         }
+    }
+
+    private fun normalizeTransactionAmount(amount: String): String {
+        return amount.toDoubleOrNull()?.let { "%.2f".format(it) } ?: amount.trim()
+    }
+
+    private fun pickMatchingTransactionFromResponse(
+        local: TransactionEntity,
+        pulled: List<TransactionDto>
+    ): TransactionDto? {
+        val localAmount = normalizeTransactionAmount(local.amount)
+        val strict = pulled.filter { tx ->
+            tx.name.equals(local.name, ignoreCase = true) &&
+                normalizeTransactionAmount(tx.amount.toString()) == localAmount &&
+                tx.walletId == local.walletId &&
+                tx.categoryId == local.categoryId &&
+                tx.type.equals(local.type, ignoreCase = true)
+        }
+        if (strict.size == 1) return strict.first()
+        val loose = pulled.filter { tx ->
+            tx.name.equals(local.name, ignoreCase = true) &&
+                normalizeTransactionAmount(tx.amount.toString()) == localAmount &&
+                tx.walletId == local.walletId
+        }
+        if (loose.size == 1) return loose.first()
+        return null
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private suspend fun remapLocalTransactionToServerId(
+        oldId: Int,
+        newId: Int,
+        now: Long,
+        serverTx: TransactionDto?
+    ) {
+        if (oldId == newId) {
+            serverTx?.let {
+                transactionDao.upsertTransaction(it.toEntity().toLocalEntity(now, true))
+            }
+            return
+        }
+        val local = transactionDao.getTransactionByTempId(oldId)
+        val merged = if (serverTx != null) {
+            serverTx.toEntity().toLocalEntity(now, true)
+        } else {
+            local?.copy(id = newId, isSynced = true, updatedAt = now) ?: return
+        }
+        transactionDao.upsertTransaction(merged.copy(id = newId, isSynced = true, updatedAt = now))
+        pendingOperationDao.remapTransactionResourceIds(oldId, newId)
+        transactionDao.deleteTransactionById(oldId)
+        walletBalanceRecalculator.recalculateWalletBalance(merged.walletId)
+        println("✅ OFFLINE_SYNC: Remapped local transaction $oldId -> server id $newId")
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private suspend fun reconcilePendingTransactionCreatesAfterPull(
+        pulled: List<TransactionDto>,
+        now: Long
+    ) {
+        val pendingCreates = pendingOperationDao.getAll().filter {
+            it.resourceType.equals("transaction", ignoreCase = true) &&
+                it.operationType.equals("create", ignoreCase = true) &&
+                it.resourceId < 0
+        }
+        if (pendingCreates.isEmpty()) return
+        for (op in pendingCreates) {
+            val local = transactionDao.getTransactionByTempId(op.resourceId)
+            if (local == null) {
+                pendingOperationDao.removeById(op.id)
+                continue
+            }
+            val match = pickMatchingTransactionFromResponse(local, pulled) ?: continue
+            println(
+                "🔁 OFFLINE_SYNC: Pull reconcile temp transaction ${op.resourceId} -> server id ${match.id}"
+            )
+            remapLocalTransactionToServerId(op.resourceId, match.id, now, match)
+            pendingOperationDao.removeById(op.id)
+        }
+    }
+
+    private fun resolveServerTransactionIdForCreatedTransaction(
+        op: PendingOperation,
+        result: SyncOperationResult,
+        response: SyncPushResponse,
+        local: TransactionEntity?
+    ): Int? {
+        result.serverResourceId?.takeIf { it > 0 }?.let { return it }
+        if (op.resourceId < 0 && result.resourceId > 0) return result.resourceId
+        val l = local ?: return null
+        return pickMatchingTransactionFromResponse(l, response.transactions)?.id?.takeIf { it > 0 }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private suspend fun remapSuccessfulTransactionCreatesAfterPush(
+        repairedOperations: List<PendingOperation>,
+        response: SyncPushResponse,
+        aligned: List<Pair<PendingOperation, SyncOperationResult?>>,
+        now: Long
+    ): MutableMap<Int, Int> {
+        val tempTransactionCreateRemap = mutableMapOf<Int, Int>()
+
+        suspend fun tryRemapOne(op: PendingOperation, result: SyncOperationResult) {
+            if (result.status != "success") return
+            if (!op.resourceType.equals("transaction", ignoreCase = true)) return
+            if (!op.operationType.equals("create", ignoreCase = true)) return
+            if (op.resourceId >= 0) return
+            if (tempTransactionCreateRemap.containsKey(op.resourceId)) return
+            val local = transactionDao.getTransactionByTempId(op.resourceId) ?: return
+            val serverId = resolveServerTransactionIdForCreatedTransaction(op, result, response, local)
+                ?: run {
+                    println(
+                        "⚠️ OFFLINE_SYNC: transaction create success but server id unresolved " +
+                            "clientId=${op.resourceId}"
+                    )
+                    return
+                }
+            if (serverId == op.resourceId) return
+            val serverTx =
+                response.transactions.firstOrNull { it.id == serverId }
+                    ?: pickMatchingTransactionFromResponse(local, response.transactions)
+            remapLocalTransactionToServerId(op.resourceId, serverId, now, serverTx)
+            tempTransactionCreateRemap[op.resourceId] = serverId
+        }
+
+        for ((op, result) in aligned) {
+            val r = result ?: continue
+            tryRemapOne(op, r)
+        }
+
+        val txCreateOps = repairedOperations.filter {
+            it.resourceType.equals("transaction", ignoreCase = true) &&
+                it.operationType.equals("create", ignoreCase = true) &&
+                it.resourceId < 0
+        }
+        val txCreateResults = response.results.filter {
+            it.resourceType.equals("transaction", ignoreCase = true) &&
+                it.operationType.equals("create", ignoreCase = true) &&
+                it.status == "success"
+        }
+        if (txCreateOps.size == txCreateResults.size) {
+            txCreateOps.zip(txCreateResults).forEach { (op, result) ->
+                tryRemapOne(op, result)
+            }
+        } else if (txCreateOps.isNotEmpty() && txCreateResults.isNotEmpty()) {
+            println(
+                "⚠️ OFFLINE_SYNC: transaction create op count (${txCreateOps.size}) != " +
+                    "success result count (${txCreateResults.size}); using primary alignment only"
+            )
+        }
+
+        return tempTransactionCreateRemap
     }
 
     /**
@@ -1047,6 +1502,33 @@ class OfflineSyncOrchestrator(
      * Recomputes monthly savings [current_saved] from local Room transactions (savings wallets only).
      * Call after sync so UI matches pulled transaction data without changing the transactions table.
      */
+    /**
+     * Removes offline temp rows when an equivalent synced server row already exists
+     * (e.g. after a failed id remap in an older app version).
+     */
+    @RequiresApi(Build.VERSION_CODES.O)
+    suspend fun dedupeStaleOfflineTransactions() {
+        val all = transactionDao.getTransactions()
+        val pending = all.filter { it.id < 0 || !it.isSynced }
+        if (pending.isEmpty()) return
+        val synced = all.filter { it.id > 0 && it.isSynced }
+        for (temp in pending) {
+            val hasServerCopy = synced.any { server ->
+                server.name.equals(temp.name, ignoreCase = true) &&
+                    normalizeTransactionAmount(server.amount) == normalizeTransactionAmount(temp.amount) &&
+                    server.walletId == temp.walletId &&
+                    server.categoryId == temp.categoryId &&
+                    server.type.equals(temp.type, ignoreCase = true)
+            }
+            if (hasServerCopy) {
+                transactionDao.deleteTransactionById(temp.id)
+                pendingOperationDao.removeAllPendingForResource("transaction", temp.id)
+                walletBalanceRecalculator.recalculateWalletBalance(temp.walletId)
+                println("🧹 OFFLINE_SYNC: Removed duplicate temp transaction id=${temp.id} name=${temp.name}")
+            }
+        }
+    }
+
     suspend fun recalculateMonthlySavingsFromLocalTransactions() {
         println("SAVINGS_RECALC: OfflineSyncOrchestrator.recalculateMonthlySavingsFromLocalTransactions()")
         monthlySavingsLocalRecalculator.recalculateAllCachedMonths()

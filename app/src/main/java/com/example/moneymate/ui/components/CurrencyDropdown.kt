@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import com.example.moneymate.utils.CurrencyUtils
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -19,22 +20,7 @@ fun CurrencyDropdown(
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val currencies = listOf(
-        "USD - $",
-        "EUR - €",
-        "GBP - £",
-        "JPY - ¥",
-        "CAD - C$",
-        "AUD - A$",
-        "CHF - CHF",
-        "CNY - ¥",
-        "INR - ₹",
-        "RUB - ₽",
-        "BRL - R$",
-        "MXN - $",
-        "KRW - ₩"
-    )
-
+    val currencies = CurrencyUtils.profileCurrencyOptions
     Box(modifier = modifier) {
         OutlinedTextField(
             value = selectedCurrency,

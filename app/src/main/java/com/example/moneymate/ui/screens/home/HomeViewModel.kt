@@ -13,6 +13,7 @@ import com.example.domain.budget.usecase.GetCurrentBudgetUseCase
 import com.example.domain.savingsGoal.model.SavingsGoal
 import com.example.domain.savingsGoal.usecase.GetCurrentSavingsGoalUseCase
 import com.example.domain.transaction.model.TransactionEntity
+import com.example.domain.transaction.usecase.DeleteTransactionUseCase
 import com.example.domain.transaction.usecase.GetTransactionsUseCase
 import com.example.domain.user.model.UserDetailedData
 import com.example.domain.user.usecase.GetUserDetailedUseCase
@@ -20,6 +21,8 @@ import com.example.domain.wallet.model.TotalBalance
 import com.example.domain.wallet.usecase.GetTotalBalanceUseCase
 import com.example.data.offline.MonthlySavingsLocalRecalculator
 import com.example.data.offline.OfflineSyncStatusDataSource
+import com.example.moneymate.utils.AvatarDiagnostics
+import com.example.moneymate.utils.AvatarImageCache
 import com.example.moneymate.utils.DataSyncManager
 import com.example.moneymate.utils.ScreenState
 import com.example.moneymate.utils.network.ConnectivityObserver
@@ -34,6 +37,7 @@ class HomeViewModel(
     private val getUserDetailedUseCase: GetUserDetailedUseCase,
     private val getTotalBalanceUseCase: GetTotalBalanceUseCase,
     private val getTransactionsUseCase: GetTransactionsUseCase,
+    private val deleteTransactionUseCase: DeleteTransactionUseCase,
     private val getBudgetUseCase: GetCurrentBudgetUseCase,
     private val getCurrentSavingsGoalUseCase: GetCurrentSavingsGoalUseCase,
     private val connectivityObserver: ConnectivityObserver,
@@ -91,6 +95,14 @@ class HomeViewModel(
                     is DataSyncManager.DataChangeEvent.WalletsUpdated -> {
                         println("🔄 DEBUG: HomeViewModel - Wallets changed, reloading from Room")
                         loadFromRoomWhenOffline()
+                    }
+                    is DataSyncManager.DataChangeEvent.UserDataUpdated -> {
+                        AvatarDiagnostics.log(
+                            "HomeViewModel",
+                            "UserDataUpdated event avatar=${event.avatarUrl}"
+                        )
+                        applyAvatarUrlOptimistically(event.avatarUrl)
+                        loadUserData(preferredAvatarUrl = event.avatarUrl)
                     }
                     else -> {}
                 }
@@ -154,13 +166,54 @@ class HomeViewModel(
         }
     }
 
-    fun loadUserData() {
+    private fun applyAvatarUrlOptimistically(avatarUrl: String?) {
+        val resolved = AvatarImageCache.resolve(
+            preferredFromEvent = avatarUrl,
+            fromApi = null,
+            previousInUi = null
+        ) ?: return
+
+        val current = _uiState.value.userDataState
+        if (current is ScreenState.Success) {
+            _uiState.update {
+                it.copy(
+                    userDataState = ScreenState.Success(
+                        current.data.copy(
+                            user = current.data.user.copy(avatarUrl = resolved)
+                        )
+                    )
+                )
+            }
+            AvatarDiagnostics.log("HomeViewModel", "Optimistic avatar set to $resolved")
+        }
+    }
+
+    fun loadUserData(preferredAvatarUrl: String? = null) {
         viewModelScope.launch {
             try {
                 val data = getUserDetailedUseCase()
-                _uiState.update { it.copy(userDataState = ScreenState.Success(data)) }
+                val previousAvatar = (_uiState.value.userDataState as? ScreenState.Success)
+                    ?.data?.user?.avatarUrl
+                val resolvedAvatar = AvatarImageCache.resolve(
+                    preferredFromEvent = preferredAvatarUrl,
+                    fromApi = data.user.avatarUrl,
+                    previousInUi = previousAvatar
+                )
+                AvatarDiagnostics.log(
+                    "HomeViewModel",
+                    "loadUserData preferred=$preferredAvatarUrl api=${data.user.avatarUrl} " +
+                        "previous=$previousAvatar resolved=$resolvedAvatar"
+                )
+                val merged = data.copy(
+                    user = data.user.copy(avatarUrl = resolvedAvatar)
+                )
+                _uiState.update { it.copy(userDataState = ScreenState.Success(merged)) }
             } catch (e: Exception) {
-                println("DEBUG: HomeViewModel - Error loading user: ${e.message}")
+                AvatarDiagnostics.logError(
+                    "HomeViewModel",
+                    "Error loading user: ${e.message}",
+                    e
+                )
             }
         }
     }
@@ -196,6 +249,24 @@ class HomeViewModel(
                 }
             } catch (e: Exception) {
                 println("DEBUG: HomeViewModel - Error loading financial overview: ${e.message}")
+            }
+        }
+    }
+
+    fun deleteTransaction(transactionId: Int, onError: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            val result = deleteTransactionUseCase(transactionId)
+            if (result.isSuccess) {
+                monthlySavingsLocalRecalculator.recalculateAllCachedMonths()
+                DataSyncManager.notifyDataChanged(DataSyncManager.DataChangeEvent.TransactionsUpdated)
+                DataSyncManager.notifyDataChanged(DataSyncManager.DataChangeEvent.WalletsUpdated)
+                loadRecentTransactions()
+                loadFinancialOverview()
+                loadFromRoomWhenOffline()
+            } else {
+                onError(
+                    result.exceptionOrNull()?.message ?: "Could not delete transaction"
+                )
             }
         }
     }
@@ -463,7 +534,11 @@ class HomeViewModel(
                     _uiState.update { it.copy(savingsGoalState = ScreenState.Empty) }
                 }
 
-                // 6. User data (fallback)
+                // 6. User data (fallback) — keep avatar from cache / current UI when offline
+                val offlineAvatar = AvatarImageCache.resolve(
+                    fromApi = (_uiState.value.userDataState as? ScreenState.Success)
+                        ?.data?.user?.avatarUrl
+                )
                 _uiState.update {
                     it.copy(
                         userDataState = ScreenState.Success(
@@ -474,7 +549,7 @@ class HomeViewModel(
                                     fullName = "Offline Mode",
                                     phoneNumber = null,
                                     dateOfBirth = null,
-                                    avatarUrl = null,
+                                    avatarUrl = offlineAvatar,
                                     defaultCurrency = "USD",
                                     createdAt = ""
                                 ),

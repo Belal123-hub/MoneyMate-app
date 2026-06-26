@@ -15,6 +15,7 @@ import com.example.data.database.dao.SyncMetadataDao
 import com.example.data.database.dao.TagDao
 import com.example.data.database.dao.TransactionDao
 import com.example.data.database.dao.WalletDao
+import com.example.data.database.dao.WalletMemberDao
 import com.example.data.database.entity.BudgetEntity
 import com.example.data.database.entity.CategoryEntity
 import com.example.data.database.entity.GoalEntity
@@ -24,6 +25,7 @@ import com.example.data.database.entity.SyncMetadata
 import com.example.data.database.entity.TagEntity
 import com.example.data.database.entity.TransactionEntity
 import com.example.data.database.entity.WalletEntity
+import com.example.data.database.entity.WalletMemberEntity
 
 val MIGRATION_1_2 = object : Migration(1, 2) {
     override fun migrate(database: SupportSQLiteDatabase) {
@@ -95,10 +97,42 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
     }
 }
 
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL(
+            "ALTER TABLE wallets ADD COLUMN owner_user_id INTEGER NOT NULL DEFAULT 0"
+        )
+        database.execSQL(
+            "ALTER TABLE wallets ADD COLUMN is_shared INTEGER NOT NULL DEFAULT 0"
+        )
+        database.execSQL(
+            "ALTER TABLE wallets ADD COLUMN my_role TEXT DEFAULT NULL"
+        )
+        database.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS wallet_members (
+                id INTEGER NOT NULL PRIMARY KEY,
+                wallet_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                user_email TEXT NOT NULL,
+                user_name TEXT NOT NULL,
+                role TEXT NOT NULL,
+                joined_at TEXT NOT NULL,
+                is_synced INTEGER NOT NULL DEFAULT 1
+            )
+            """.trimIndent()
+        )
+        database.execSQL(
+            "CREATE INDEX IF NOT EXISTS idx_wallet_members_wallet_id ON wallet_members(wallet_id)"
+        )
+    }
+}
+
 @Database(
     entities = [
         TransactionEntity::class,
         WalletEntity::class,
+        WalletMemberEntity::class,
         CategoryEntity::class,
         GoalEntity::class,
         SyncMetadata::class,
@@ -107,13 +141,14 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
         TagEntity::class,
         BudgetEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 @TypeConverters(DatabaseConverters::class)
 abstract class MoneyMateDatabase : RoomDatabase() {
     abstract fun transactionDao(): TransactionDao
     abstract fun walletDao(): WalletDao
+    abstract fun walletMemberDao(): WalletMemberDao
     abstract fun categoryDao(): CategoryDao
     abstract fun goalDao(): GoalDao
     abstract fun monthlySavingsGoalDao(): MonthlySavingsGoalDao

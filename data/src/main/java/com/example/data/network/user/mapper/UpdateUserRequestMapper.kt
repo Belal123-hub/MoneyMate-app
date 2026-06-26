@@ -12,7 +12,8 @@ object UpdateUserRequestMapper {
             fullName = user.fullName,
             phoneNumber = user.phoneNumber,
             dateOfBirth = user.dateOfBirth,
-            defaultCurrency = user.defaultCurrency
+            defaultCurrency = user.defaultCurrency,
+            avatarUrl = user.avatarUrl
         )
     }
 }

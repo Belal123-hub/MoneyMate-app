@@ -52,7 +52,7 @@ interface TransactionApi {
     suspend fun getTransactionsByWalletId(@Path("wallet_id") walletId: Int): Response<List<TransactionDto>>
 
     @DELETE("api/transactions/{transaction_id}")
-    suspend fun deleteTransaction(@Path("id") id: Int): Response<Unit>
+    suspend fun deleteTransaction(@Path("transaction_id") id: Int): Response<Unit>
 
 
     @GET("api/analytics/spending-trends")

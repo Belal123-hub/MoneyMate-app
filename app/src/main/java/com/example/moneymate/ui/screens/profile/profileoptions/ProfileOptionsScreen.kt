@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -21,12 +22,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil.compose.AsyncImage
-import coil.compose.rememberAsyncImagePainter
 import com.example.moneymate.R
+import com.example.moneymate.ui.components.ProfileAvatar
 import com.example.moneymate.utils.AppError
-import com.example.moneymate.utils.Config
 import org.koin.androidx.compose.koinViewModel
 
 @Composable
@@ -43,6 +45,17 @@ fun ProfileOptionsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val errorState by viewModel.errorState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.loadUserData()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     // Handle errors
     LaunchedEffect(errorState) {
@@ -97,45 +110,11 @@ fun ProfileOptionsScreen(
                 .padding(top = 25.dp, start = 25.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Avatar
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF333333)),
-                contentAlignment = Alignment.Center
-            ) {
-                uiState.user?.avatarUrl?.let { avatarUrl ->
-                    val fullAvatarUrl = Config.buildImageUrl(avatarUrl)
-                    AsyncImage(
-                        model = fullAvatarUrl,
-                        contentDescription = "Profile Avatar",
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(CircleShape),
-                        placeholder = rememberAsyncImagePainter(
-                            model = R.drawable.ic_person
-                        ),
-                        error = rememberAsyncImagePainter(
-                            model = R.drawable.ic_person
-                        )
-                    )
-                } ?: run {
-                    // Display user initials if no avatar
-                    val initials = uiState.user?.fullName?.let { name ->
-                        name.split(" ").take(2).joinToString("") { it.firstOrNull()?.toString() ?: "" }
-                            .take(2)
-                            .uppercase()
-                    } ?: "U"
-
-                    Text(
-                        text = initials,
-                        color = Color.White,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
+            ProfileAvatar(
+                avatarUrl = uiState.user?.avatarUrl,
+                fullName = uiState.user?.fullName,
+                modifier = Modifier.size(48.dp)
+            )
 
             Spacer(modifier = Modifier.width(22.dp))
 

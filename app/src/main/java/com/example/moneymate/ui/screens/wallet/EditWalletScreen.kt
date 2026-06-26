@@ -89,14 +89,34 @@ fun EditWalletScreen(
                 ) {
                     when (val walletDetailState = uiState.walletDetailState) {
                         is com.example.moneymate.utils.ScreenState.Success -> {
-                            EditWalletFormContent(
-                                walletDetail = walletDetailState.data,
-                                onUpdateWallet = viewModel::updateWallet,
-                                onCancel = onBackClick,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(16.dp)
-                            )
+                            if (walletDetailState.data.canEditWallet()) {
+                                EditWalletFormContent(
+                                    walletDetail = walletDetailState.data,
+                                    onUpdateWallet = viewModel::updateWallet,
+                                    onCancel = onBackClick,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(16.dp)
+                                )
+                            } else {
+                                Column(
+                                    modifier = Modifier
+                                        .align(Alignment.Center)
+                                        .padding(24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = "You have view-only access to this wallet and cannot edit it.",
+                                        color = Color.Gray
+                                    )
+                                    Button(
+                                        onClick = onBackClick,
+                                        modifier = Modifier.padding(top = 16.dp)
+                                    ) {
+                                        Text("Go back")
+                                    }
+                                }
+                            }
                         }
                         else -> {
                             // This should not happen due to the when condition above
@@ -134,7 +154,9 @@ private fun EditWalletFormContent(
     var initialBalance by remember { mutableStateOf(walletDetail.initialBalance) }
     var selectedWalletType by remember { mutableStateOf(walletDetail.walletType) }
     var cardNumber by remember { mutableStateOf(walletDetail.cardNumber ?: "") }
-    var selectedCurrency by remember { mutableStateOf(walletDetail.currency) }
+    var selectedCurrency by remember(walletDetail.currency) {
+        mutableStateOf(com.example.moneymate.utils.CurrencyUtils.parseCurrencyCode(walletDetail.currency))
+    }
     var selectedColor by remember { mutableStateOf(walletDetail.color) }
 
     WalletForm(

@@ -76,6 +76,7 @@ import com.example.moneymate.ui.components.states.FullScreenLoading
 import com.example.moneymate.ui.components.states.SectionStateManager
 import com.example.moneymate.ui.offline.SyncStatusIndicator
 import com.example.moneymate.ui.screens.transaction.component.TransactionTextField
+import com.example.moneymate.utils.CurrencyUtils.getCurrencySymbol
 import com.example.moneymate.utils.IconMapper
 import com.example.moneymate.utils.ScreenState
 import org.koin.androidx.compose.koinViewModel
@@ -160,7 +161,8 @@ fun AddTransactionScreen(
                     onClick = {
                         viewModel.createTransaction(context)
                     },
-                    enabled = uiState.transactionState !is ScreenState.Loading &&
+                    enabled = uiState.canAddTransactions &&
+                            uiState.transactionState !is ScreenState.Loading &&
                             uiState.selectedWalletId != 0 &&
                             uiState.amount != "0" &&
                             uiState.amount != "0." &&
@@ -219,8 +221,11 @@ fun AddTransactionScreen(
                         onTypeSelected = viewModel::onTransactionTypeSelected
                     )
                     Spacer(modifier = Modifier.height(20.dp))
+                    val amountCurrencySymbol = remember(uiState.sourceWalletCurrency) {
+                        getCurrencySymbol(uiState.sourceWalletCurrency)
+                    }
                     Text(
-                        text = "$${uiState.amount}",
+                        text = "$amountCurrencySymbol${uiState.amount}",
                         style = MaterialTheme.typography.displayLarge,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center,
@@ -459,7 +464,7 @@ fun TransferContent(
                         fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
                     )
                     Text(
-                        text = "From: ${uiState.amount} ${preview.sourceCurrency}",
+                        text = "From: ${getCurrencySymbol(preview.sourceCurrency)}${uiState.amount} ${preview.sourceCurrency}",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.LightGray
                     )
@@ -549,6 +554,14 @@ fun IncomeExpenseContent(
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
     ) {
+        if (uiState.isViewOnlyWallet) {
+            Text(
+                text = "You have view-only access to this wallet",
+                color = Color(0xFFB45309),
+                fontSize = 13.sp,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -777,7 +790,9 @@ fun WalletDropdown(
                 wallets.forEach { wallet ->
                     DropdownMenuItem(
                         text = {
-                            Text("${wallet.name} - $${wallet.balance ?: "0.00"}")
+                            Text(
+                                "${wallet.name} - ${getCurrencySymbol(wallet.currency)}${wallet.balance ?: "0.00"}"
+                            )
                         },
                         onClick = {
                             onWalletSelected(wallet)

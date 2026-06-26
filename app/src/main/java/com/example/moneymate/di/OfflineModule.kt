@@ -5,6 +5,7 @@ import com.example.data.database.MIGRATION_1_2
 import com.example.data.database.MIGRATION_2_3
 import com.example.data.database.MIGRATION_3_4
 import com.example.data.database.MIGRATION_4_5
+import com.example.data.database.MIGRATION_5_6
 import com.example.data.database.MoneyMateDatabase
 import com.example.data.network.common.Network
 import com.example.data.network.category.CategoryRepositoryImpl
@@ -16,6 +17,7 @@ import com.example.data.network.wallet.WalletRepositoryImpl
 import com.example.data.offline.MonthlySavingsLocalRecalculator
 import com.example.data.offline.OfflineSyncOrchestrator
 import com.example.data.offline.WalletBalanceRecalculator
+import com.example.data.offline.WalletPermissionHelper
 import com.example.data.offline.OfflineSyncStatusDataSource
 import com.example.data.offline.repository.OfflineCategoryRepositoryImpl
 import com.example.data.offline.repository.OfflineGoalRepositoryImpl
@@ -43,11 +45,13 @@ val offlineModule = module {
             .addMigrations(MIGRATION_2_3)
             .addMigrations(MIGRATION_3_4)
             .addMigrations(MIGRATION_4_5)
+            .addMigrations(MIGRATION_5_6)
             .build()
     }
 
     single { get<MoneyMateDatabase>().transactionDao() }
     single { get<MoneyMateDatabase>().walletDao() }
+    single { get<MoneyMateDatabase>().walletMemberDao() }
     single { get<MoneyMateDatabase>().categoryDao() }
     single { get<MoneyMateDatabase>().goalDao() }
     single { get<MoneyMateDatabase>().monthlySavingsGoalDao() }  // ← ADD THIS LINE
@@ -60,14 +64,17 @@ val offlineModule = module {
 
     single { WalletBalanceRecalculator(get(), get()) }
     single { MonthlySavingsLocalRecalculator(get(), get()) }
+    single { WalletPermissionHelper(get(), get(), get()) }
 
     single {
         OfflineSyncOrchestrator(
             syncApi = get(),
+            transactionApi = get(),
             walletApi = get(),
             goalApi = get(),
             transactionDao = get(),
             walletDao = get(),
+            walletMemberDao = get(),
             categoryDao = get(),
             goalDao = get(),
             tagDao = get(),
@@ -84,10 +91,12 @@ val offlineModule = module {
         OfflineWalletRepositoryImpl(
             remoteRepository = get<WalletRepositoryImpl>(),
             walletDao = get(),
+            walletMemberDao = get(),
             transactionDao = get(),
             syncOrchestrator = get(),
             walletBalanceRecalculator = get(),
-            pendingOperationDao = get()
+            pendingOperationDao = get(),
+            walletPermissionHelper = get()
         )
     }
     single<TransactionRepository> {
@@ -99,7 +108,8 @@ val offlineModule = module {
             monthlySavingsLocalRecalculator = get(),
             savingsGoalRepository = get(),
             monthlySavingsGoalDao = get(),
-            walletBalanceRecalculator = get()
+            walletBalanceRecalculator = get(),
+            walletPermissionHelper = get()
         )
     }
     single<CategoryRepository> {

@@ -20,6 +20,12 @@ data class WalletEntity(
     val balance: String? = null,
     @ColumnInfo(name = "user_id")
     val userId: Int? = null,
+    @ColumnInfo(name = "owner_user_id")
+    val ownerUserId: Int = 0,
+    @ColumnInfo(name = "is_shared")
+    val isShared: Boolean = false,
+    @ColumnInfo(name = "my_role")
+    val myRole: String? = null,
     @ColumnInfo(name = "created_at")
     val createdAt: String? = null,
     @ColumnInfo(name = "updated_at")

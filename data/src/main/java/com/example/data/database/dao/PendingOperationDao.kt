@@ -33,6 +33,11 @@ interface PendingOperationDao {
     )
     suspend fun remapGoalResourceIds(oldId: Int, newId: Int)
 
+    @Query(
+        "UPDATE pending_operations SET resource_id = :newId WHERE resource_id = :oldId AND resource_type = 'transaction'"
+    )
+    suspend fun remapTransactionResourceIds(oldId: Int, newId: Int)
+
     @Query("DELETE FROM pending_operations WHERE resource_type = :resourceType AND resource_id = :resourceId")
     suspend fun removeAllPendingForResource(resourceType: String, resourceId: Int)
 

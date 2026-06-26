@@ -28,11 +28,22 @@ fun getExpiryDisplay(walletType: String): String {
 
 // Get currency name
 fun getCurrencyName(currencyCode: String): String {
-    return when (currencyCode) {
+    return when (com.example.moneymate.utils.CurrencyUtils.parseCurrencyCode(currencyCode)) {
+        "YER" -> "Yemeni Rial"
+        "SAR" -> "Saudi Riyal"
         "USD" -> "US Dollar"
         "EUR" -> "Euro"
         "GBP" -> "British Pound"
+        "JPY" -> "Japanese Yen"
+        "CAD" -> "Canadian Dollar"
+        "AUD" -> "Australian Dollar"
+        "CHF" -> "Swiss Franc"
+        "CNY" -> "Chinese Yuan"
+        "INR" -> "Indian Rupee"
         "RUB" -> "Russian Ruble"
+        "BRL" -> "Brazilian Real"
+        "MXN" -> "Mexican Peso"
+        "KRW" -> "South Korean Won"
         else -> currencyCode
     }
 }
@@ -68,7 +79,7 @@ fun calculateIncomeExpense(transactions: List<TransactionEntity>): Pair<Double, 
 
     transactions.forEach { transaction ->
         val amount = transaction.amount.toDoubleOrNull() ?: 0.0
-        when (transaction.type) {
+        when (transaction.type.trim().lowercase()) {
             "income" -> income += amount
             "expense" -> expense += amount
             // Note: transfer transactions might need special handling

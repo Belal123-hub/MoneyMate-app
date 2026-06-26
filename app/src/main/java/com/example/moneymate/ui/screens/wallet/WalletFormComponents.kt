@@ -26,12 +26,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.moneymate.utils.CurrencyUtils
 
 @Composable
 fun TotalBalanceCard(
     initialBalance: String,
+    currencyCode: String,
     modifier: Modifier = Modifier
 ) {
+    val currencySymbol = remember(currencyCode) {
+        CurrencyUtils.getCurrencySymbol(currencyCode)
+    }
     val displayBalance = if (initialBalance.isEmpty()) "0.00" else
         String.format("%.2f", initialBalance.toDoubleOrNull() ?: 0.0)
 
@@ -54,7 +59,7 @@ fun TotalBalanceCard(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "$$displayBalance",
+                text = "$currencySymbol$displayBalance",
                 style = MaterialTheme.typography.headlineMedium,
                 color = Color(0xFF1A1A1A),
                 fontWeight = FontWeight.Bold
@@ -169,13 +174,8 @@ fun CurrencyDropdown(
 ) {
     var expanded by remember { mutableStateOf(false) }
 
-    val currencies = listOf(
-        "USD" to "USD - US Dollar",
-        "EUR" to "EUR - Euro",
-        "GBP" to "GBP - British Pound",
-        "RUB" to "RUB - Russian Ruble",
-        "JPY" to "JPY - Japanese Yen"
-    )
+    val currencies = CurrencyUtils.walletCurrencyOptions
+    val selectedCode = CurrencyUtils.parseCurrencyCode(selectedCurrency)
 
     ExposedDropdownMenuBox(
         expanded = expanded,
@@ -183,7 +183,8 @@ fun CurrencyDropdown(
         modifier = modifier
     ) {
         OutlinedTextField(
-            value = currencies.find { it.first == selectedCurrency }?.second ?: "USD - US Dollar",
+            value = currencies.find { it.first == selectedCode }?.second
+                ?: CurrencyUtils.toDisplayFormat(selectedCurrency),
             onValueChange = { },
             label = { Text("Currency") },
             trailingIcon = {

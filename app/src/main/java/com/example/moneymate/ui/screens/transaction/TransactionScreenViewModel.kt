@@ -17,6 +17,7 @@ import com.example.domain.transaction.usecase.GetAverageSpendingUseCase
 import com.example.domain.transaction.usecase.GetCategorySummaryUseCase
 import com.example.domain.transaction.usecase.GetMonthlyChartDataUseCase
 import com.example.domain.transaction.usecase.GetMonthlyComparisonUseCase
+import com.example.domain.transaction.usecase.DeleteTransactionUseCase
 import com.example.domain.transaction.usecase.GetRecentTransactionsUseCase
 import com.example.domain.transaction.usecase.GetSavingsForecastUseCase
 import com.example.domain.transaction.usecase.GetSavingsSuggestionsUseCase
@@ -37,6 +38,7 @@ class TransactionScreenViewModel(
     private val getCategorySummaryUseCase: GetCategorySummaryUseCase,
     private val getMonthlyComparisonUseCase: GetMonthlyComparisonUseCase,
     private val getRecentTransactionsUseCase: GetRecentTransactionsUseCase,
+    private val deleteTransactionUseCase: DeleteTransactionUseCase,
     private val getTopCategoriesCurrentMonthUseCase: GetTopCategoriesCurrentMonthUseCase,
     private val getAverageSpendingUseCase: GetAverageSpendingUseCase,
     private val getSavingsForecastUseCase: GetSavingsForecastUseCase,
@@ -356,6 +358,22 @@ class TransactionScreenViewModel(
                 )
             } catch (e: Exception) {
                 println("DEBUG: Error loading average spending: ${e.message}")
+            }
+        }
+    }
+
+    fun deleteTransaction(transactionId: Int, onError: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            val result = deleteTransactionUseCase(transactionId)
+            if (result.isSuccess) {
+                DataSyncManager.notifyDataChanged(DataSyncManager.DataChangeEvent.TransactionsUpdated)
+                DataSyncManager.notifyDataChanged(DataSyncManager.DataChangeEvent.WalletsUpdated)
+                loadRecentTransactions()
+                loadAllChartData()
+            } else {
+                onError(
+                    result.exceptionOrNull()?.message ?: "Could not delete transaction"
+                )
             }
         }
     }
